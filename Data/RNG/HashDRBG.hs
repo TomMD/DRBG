@@ -48,7 +48,7 @@ reseedAlgorithm st ent additionalInput =
 	    seed = hash_df h seedMaterial (seedlen h)
 	    v = seed
 	    c = hash_df h (B.cons 0 v) (seedlen h)
-	in St v c 1 256 True h
+	in St v c 1 (strength h) True h
   where h = hashAlg st
 
 -- section 10.1.1.4 pg 38
