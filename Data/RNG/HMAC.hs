@@ -4,21 +4,23 @@ import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as L
 import Data.Serialize (encode)
 import Data.Crypto.Classes
+import Data.RNG.DRBG
 
 
 data State h = St
-	{ value		:: !B.ByteString
-	, key		:: !B.ByteString
-	, counter	:: !Integer
+	{ value			:: !B.ByteString
+	, key			:: !B.ByteString
+	, counter		:: !Integer
 	-- Start admin info
-	, securityStrength :: !Int
-	, predictionResistant :: !Bool
-	, hashAlg	:: h
+	, securityStrength	:: !Int
+	, predictionResistant	:: !Bool
+	, hashAlg		:: h
 	} deriving (Eq, Ord)
 
+reseed_interval = 2^48
 
 update :: (Hash h d) => State h -> L.ByteString -> State H
-update st input = st { value = newV , key = newk }
+update st input = st { value = newV , key = newK }
   where
   h  = hashAlg st
   k  = key st
@@ -45,13 +47,11 @@ generate :: (Hash h d) => State h -> BitLen -> AdditionalInput -> Maybe (RandomB
 generate st req additionalInput =
 	if(counter st > reseed_interval)
 		then Nothing
-		else Just (wFinal, stFinal { counter = 1 + counter st})
+		else Just (L.take r wFinal, stFinal { counter = 1 + counter st})
   where
-  c = counter st
   st' = if B.length additionalInput == 0
 		then 0
 		else update st additionalInput
-  retBits = B.take reqBytes (B.concat . take m . map snd $ w)
   reqBytes = r `div` 8
   m = if req `rem` outlen == 0 then req `div` outlen else (r + outlen) `div` outlen
   w = iterate (\((kI,vI),wOld) -> let vN = hmac h k v in ((kI, vN), L.append wOld vN)) ((key st', value st'), L.empty)
