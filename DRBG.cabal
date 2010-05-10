@@ -17,5 +17,5 @@ Library
   Build-Depends: base == 4.*, cereal, bytestring, prettyclass, binary
   ghc-options:
   hs-source-dirs:
-  exposed-modules: Data.RNG.HashDRBG, Data.Crypto.Classes
-  other-modules: Data.RNG.HashDF
+  exposed-modules: Data.DRBG, Data.DRBG.Hash, Data.Crypto.Classes, Data.DRBG.HMAC
+  other-modules: Data.DRBG.HashDF

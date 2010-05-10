@@ -4,6 +4,7 @@ module Data.DRBG.Hash where
 
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as L
+import Data.DRBG
 import Data.DRBG.HashDF
 import Data.Crypto.Classes
 import Data.Serialize (encode)
@@ -27,7 +28,7 @@ data State h = St
 
 -- step 9 from sectoin 9.1 (pg 26)
 -- section 10.1.1.2 pg 36
-instantiateAlgorithm :: (Hash h d, SeedLength h) => h -> Entropy -> Nonce -> PersonalizationString -> State h
+instantiateAlgorithm :: (Hash h c d, SeedLength h) => h -> Entropy -> Nonce -> PersonalizationString -> State h
 instantiateAlgorithm h entropyInput nonce perStr =
 	let seedMaterial = B.concat [entropyInput, nonce, perStr]
 	    seed = hash_df h seedMaterial (seedlen h) :: B.ByteString
@@ -36,7 +37,7 @@ instantiateAlgorithm h entropyInput nonce perStr =
 	in St v c 1 256 True h
 
 -- section 10.1.1.3 pg 37
-reseedAlgorithm :: (SeedLength h, Hash h d) => State h -> Entropy -> AdditionalInput -> State h
+reseedAlgorithm :: (SeedLength h, Hash h c d) => State h -> Entropy -> AdditionalInput -> State h
 reseedAlgorithm st ent additionalInput =
 	let seedMaterial = B.concat [B.pack [1], value st, ent, additionalInput]
 	    seed = hash_df h seedMaterial (seedlen h)
@@ -47,7 +48,7 @@ reseedAlgorithm st ent additionalInput =
 
 -- section 10.1.1.4 pg 38
 -- Nothing indicates a need to reseed
-generateAlgorithm :: (Hash h d, SeedLength h) => State h -> BitLen -> AdditionalInput -> Maybe (RandomBits, State h)
+generateAlgorithm :: (Hash h c d, SeedLength h) => State h -> BitLen -> AdditionalInput -> Maybe (RandomBits, State h)
 generateAlgorithm st req additionalInput =
 	if (counter st > reseed_interval)
 		then Nothing
@@ -64,7 +65,7 @@ generateAlgorithm st req additionalInput =
   hash = encode . hashFunction hsh . L.fromChunks
 
 -- 10.1.1.4, pg 39
-hashGen :: (Hash h d, SeedLength h) => h -> BitLen -> B.ByteString -> RandomBits
+hashGen :: (Hash h c d, SeedLength h) => h -> BitLen -> B.ByteString -> RandomBits
 hashGen h r val = B.take reqBytes (head . drop m . map snd $ w)
   where
   reqBytes = if r `mod` 8 == 0 then r `div` 8 else (r + 8) `div` 8

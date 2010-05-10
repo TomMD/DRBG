@@ -4,7 +4,8 @@ import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as L
 import Data.Serialize (encode)
 import Data.Crypto.Classes
-import Data.RNG.DRBG
+import Data.Crypto.HMAC
+import Data.DRBG
 
 
 data State h = St
@@ -19,7 +20,7 @@ data State h = St
 
 reseed_interval = 2^48
 
-update :: (Hash h d) => State h -> L.ByteString -> State H
+update :: (Hash h d) => State h -> L.ByteString -> State h
 update st input = st { value = newV , key = newK }
   where
   h  = hashAlg st

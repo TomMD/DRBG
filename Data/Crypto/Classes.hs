@@ -9,20 +9,14 @@ import qualified Data.ByteString as B
 
 type BitLength = Int
 
-v v v v v v v
 class (Binary d, Serialize d, Pretty d)
     => Hash h ctx d | h -> d, h -> ctx, ctx -> d where
   outputLength   :: h -> BitLength
   hashFunction   :: h -> ByteString -> d
   initialContext :: h -> ctx
-  updateContext  :: h -> ctx -> ByteString -> ctx
-  finalize       :: h -> ctx -> ByteString -> d
+  updateContext  :: ctx -> ByteString -> ctx
+  finalize       :: ctx -> ByteString -> d
   strength       :: h -> Int
-*************
-class (Serialize d, Pretty d, Binary d) => Hash h d | h -> d, d -> h where
-  outputLength :: h -> BitLength
-  hashFunction :: h -> ByteString -> d
-^ ^ ^ ^ ^ ^ ^
 
 class Cipher c ct k | k -> c, c -> ct where
   blockSize       :: c -> BitLength

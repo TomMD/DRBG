@@ -10,7 +10,7 @@ import Data.Word (Word8, Word32)
 type BitLen = Int
 
 -- Section 10.4.1, pg 65
-hash_df :: Hash h d => h -> B.ByteString -> BitLen -> B.ByteString
+hash_df :: Hash h c d => h -> B.ByteString -> BitLen -> B.ByteString
 hash_df h str reqBits = B.concat . take len . map fst $ t
   where
   outlen = outputLength h
