@@ -8,6 +8,7 @@ import Data.DRBG
 import Data.DRBG.HashDF
 import Data.Crypto.Classes
 import Data.Serialize (encode)
+import qualified Data.Binary as Bin
 import Data.Bits (shiftR, shiftL)
 
 class SeedLength h where
@@ -54,7 +55,7 @@ generateAlgorithm st req additionalInput =
 		then Nothing
 		else Just (retBits, st { value = v2, counter = cnt})
   where
-  w = hash [B.concat [B.pack [2], value st, additionalInput]]
+  w = hash [B.singleton 2, value st, additionalInput]
   v1 = if B.length additionalInput == 0 then value st else i2bs slen (bs2i (value st) + bs2i w)
   retBits = hashGen hsh req v1
   h = hash [B.cons 3 v1]
@@ -66,12 +67,12 @@ generateAlgorithm st req additionalInput =
 
 -- 10.1.1.4, pg 39
 hashGen :: (Hash h c d, SeedLength h) => h -> BitLen -> B.ByteString -> RandomBits
-hashGen h r val = B.take reqBytes (head . drop m . map snd $ w)
+hashGen h r val = L.take (fromIntegral reqBytes) . head . drop m . map snd $ w
   where
   reqBytes = if r `mod` 8 == 0 then r `div` 8 else (r + 8) `div` 8
   m = if r `rem` outlen == 0 then r `div` outlen else (r + outlen) `div` outlen
   dat = val
-  w = iterate (\(d,wOld) -> (i2bs slen (bs2i d + 1), B.append wOld (encode $ hash d))) (val, B.empty)
+  w = iterate (\(d,wOld) -> (i2bs slen (bs2i d + 1), L.append wOld (Bin.encode $ hash d))) (val, L.empty)
   slen = seedlen h
   outlen = outputLength h
   hash = hashFunction h . L.fromChunks . \b -> [b]

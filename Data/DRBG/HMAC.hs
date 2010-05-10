@@ -6,7 +6,7 @@ import Data.Serialize (encode)
 import Data.Crypto.Classes
 import Data.Crypto.HMAC
 import Data.DRBG
-
+import qualified Data.Binary as Bin
 
 data State h = St
 	{ value			:: !B.ByteString
@@ -20,42 +20,45 @@ data State h = St
 
 reseed_interval = 2^48
 
-update :: (Hash h d) => State h -> L.ByteString -> State h
+fc = L.fromChunks . \s -> [s]
+
+update :: (Hash h c d) => State h -> L.ByteString -> State h
 update st input = st { value = newV , key = newK }
   where
   h  = hashAlg st
   k  = key st
   v  = value st
-  k' = hmac h k (L.concat [L.fromChunks [v], L.singleton 0, input])
-  v' = hmac h k' v
+  k' = encode $ hmac h k (L.concat [fc v, L.singleton 0, input])
+  v' = encode $ hmac h k' (fc v)
   (newK, newV) =
     if L.length input == 0
       then (k',v')
-      else let k'' = hmac h k (L.concat [L.fromChunks [v'], L.singleton 1, input])
-           in (k'', hmac h k'' v')
+      else let k'' = encode $ hmac h k (L.concat [fc v', L.singleton 1, input])
+           in (k'', encode $ hmac h k'' (fc v'))
 
-instantiate :: (Hash h d) => h -> Entropy -> Nonce -> PersonalizationString -> Stat h
+instantiate :: (Hash h c d) => h -> Entropy -> Nonce -> PersonalizationString -> State h
 instantiate h ent nonce perStr =
-	let seedMaterial = B.concat [ent, nonce, perStr]
-	    k = B.replicate (bitLength h) 0
-	    v = B.replicate (bitLength h) 1
-	in update (St v k 1 (strength h) True h)
+	let seedMaterial = L.fromChunks [ent, nonce, perStr]
+	    k = B.replicate (outputLength h) 0
+	    v = B.replicate (outputLength h) 1
+	in update (St v k 1 (strength h) True h) seedMaterial
 
-reseed :: (Hash h d) => State h -> Entropy -> AdditionalInput -> State h
-reseed st ent ai = (update st (B.append ent ai)) { counter = 1 }
+reseed :: (Hash h c d) => State h -> Entropy -> AdditionalInput -> State h
+reseed st ent ai = (update st (L.fromChunks [ent, ai])) { counter = 1 }
 
-generate :: (Hash h d) => State h -> BitLen -> AdditionalInput -> Maybe (RandomBits, State h)
+generate :: (Hash h c d) => State h -> BitLength -> AdditionalInput -> Maybe (RandomBits, State h)
 generate st req additionalInput =
 	if(counter st > reseed_interval)
 		then Nothing
-		else Just (L.take r wFinal, stFinal { counter = 1 + counter st})
+		else Just (L.take (fromIntegral reqBytes) wFinal, stFinal { counter = 1 + counter st})
   where
+  h = hashAlg st
   st' = if B.length additionalInput == 0
-		then 0
-		else update st additionalInput
-  reqBytes = r `div` 8
-  m = if req `rem` outlen == 0 then req `div` outlen else (r + outlen) `div` outlen
-  w = iterate (\((kI,vI),wOld) -> let vN = hmac h k v in ((kI, vN), L.append wOld vN)) ((key st', value st'), L.empty)
+		then st
+		else update st (fc additionalInput)
+  reqBytes = req `div` 8
+  m = if req `rem` outlen == 0 then req `div` outlen else (req + outlen) `div` outlen
+  w = iterate (\((kI,vI),wOld) -> let vN = hmac h kI (fc vI) in ((kI, encode vN), L.append wOld (Bin.encode vN))) ((key st', value st'), L.empty)
   ((kFinal, vFinal), wFinal) = head $ drop m w
-  stFinal = update (st { key = kFinal, value = vFinal}) additionalInput
+  stFinal = update (st' { key = kFinal, value = vFinal}) (fc additionalInput)
   outlen = outputLength h
