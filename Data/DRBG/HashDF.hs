@@ -1,4 +1,4 @@
-module Data.RNG.HashDF where
+module Data.DRBG.HashDF where
 
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as L

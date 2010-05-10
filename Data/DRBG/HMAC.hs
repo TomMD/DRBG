@@ -1,4 +1,4 @@
-module Data.RNG.HMAC where
+module Data.DRBG.HMAC where
 
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as L

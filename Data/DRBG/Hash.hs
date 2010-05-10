@@ -1,19 +1,13 @@
 {-# LANGUAGE BangPatterns #-}
-module Data.RNG.HashDRBG where
+module Data.DRBG.Hash where
 -- NIST SP 800-90 
 
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as L
-import Data.RNG.HashDF
+import Data.DRBG.HashDF
 import Data.Crypto.Classes
 import Data.Serialize (encode)
 import Data.Bits (shiftR, shiftL)
-
-type Entropy = B.ByteString
-type PersonalizationString = B.ByteString
-type Nonce = B.ByteString
-type AdditionalInput = B.ByteString
-type RandomBits = B.ByteString
 
 class SeedLength h where
   seedlen :: h -> Int
@@ -22,14 +16,14 @@ reseed_interval = 2^48
 
 -- Section 10.1.1.1, pg 35
 data State h = St
-	{ value			:: !B.ByteString -- seedlen bits
-	, constant		:: !B.ByteString -- seedlen bits
-	, counter		:: !Integer      -- Number of RBG requests since last reseed
+	{ value			:: B.ByteString -- seedlen bits
+	, constant		:: B.ByteString -- seedlen bits
+	, counter		:: Integer      -- Number of RBG requests since last reseed
 	-- start admin info
-	, securityStrength	:: !Int
-	, predictionResistant	:: !Bool
+	, securityStrength	:: Int
+	, predictionResistant	:: Bool
 	, hashAlg		:: h
-	} deriving (Eq, Ord)
+	} deriving (Eq, Ord, Show)
 
 -- step 9 from sectoin 9.1 (pg 26)
 -- section 10.1.1.2 pg 36
@@ -71,9 +65,9 @@ generateAlgorithm st req additionalInput =
 
 -- 10.1.1.4, pg 39
 hashGen :: (Hash h d, SeedLength h) => h -> BitLen -> B.ByteString -> RandomBits
-hashGen h r val = B.take reqBytes (B.concat . take m . map snd $ w)
+hashGen h r val = B.take reqBytes (head . drop m . map snd $ w)
   where
-  reqBytes = r `div` 8
+  reqBytes = if r `mod` 8 == 0 then r `div` 8 else (r + 8) `div` 8
   m = if r `rem` outlen == 0 then r `div` outlen else (r + outlen) `div` outlen
   dat = val
   w = iterate (\(d,wOld) -> (i2bs slen (bs2i d + 1), B.append wOld (encode $ hash d))) (val, B.empty)
@@ -83,7 +77,7 @@ hashGen h r val = B.take reqBytes (B.concat . take m . map snd $ w)
 
 -- Appendix B
 i2bs :: BitLen -> Integer -> B.ByteString
-i2bs l i = B.unfoldr (\l' -> if l < 0 then Nothing else Just (fromIntegral (i `shiftR` l'), l' - 8)) (l-8)
+i2bs l i = B.unfoldr (\l' -> if l' < 0 then Nothing else Just (fromIntegral (i `shiftR` l'), l' - 8)) (l-8)
 
 bs2i :: B.ByteString -> Integer
 bs2i bs = B.foldl' (\i b -> (i `shiftL` 8) + fromIntegral b) 0 bs

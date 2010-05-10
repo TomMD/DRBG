@@ -1,4 +1,4 @@
-module Data.RNG.DRBG
+module Data.DRBG
 
 type Entropy = B.ByteString
 type PersonalizationString = B.ByteString

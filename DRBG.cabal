@@ -1,5 +1,5 @@
 name:		DRBG
-version:	0.0.0.1
+version:	0.0.0.2
 license:	BSD3
 license-file:	LICENSE
 author:		Thomas DuBuisson <thomas.dubuisson@gmail.com>
@@ -17,4 +17,5 @@ Library
   Build-Depends: base == 4.*, cereal, bytestring, prettyclass, binary
   ghc-options:
   hs-source-dirs:
-  exposed-modules: Data.RNG.HashDRBG
+  exposed-modules: Data.RNG.HashDRBG, Data.Crypto.Classes
+  other-modules: Data.RNG.HashDF
