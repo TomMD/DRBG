@@ -1,4 +1,9 @@
-module Data.DRBG.HMAC where
+module Data.DRBG.HMAC
+	( State(..)
+	, reseedInterval
+	, instantiate
+	, reseed
+	, generate) where
 
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as L
@@ -18,7 +23,7 @@ data State h = St
 	, hashAlg		:: h
 	} deriving (Eq, Ord)
 
-reseed_interval = 2^48
+reseedInterval = 2^48
 
 fc = L.fromChunks . \s -> [s]
 
@@ -48,7 +53,7 @@ reseed st ent ai = (update st (L.fromChunks [ent, ai])) { counter = 1 }
 
 generate :: (Hash h c d) => State h -> BitLength -> AdditionalInput -> Maybe (RandomBits, State h)
 generate st req additionalInput =
-	if(counter st > reseed_interval)
+	if(counter st > reseedInterval)
 		then Nothing
 		else Just (L.take (fromIntegral reqBytes) wFinal, stFinal { counter = 1 + counter st})
   where
@@ -56,7 +61,7 @@ generate st req additionalInput =
   st' = if B.length additionalInput == 0
 		then st
 		else update st (fc additionalInput)
-  reqBytes = req `div` 8
+  reqBytes = req `div` 8 + (if req `rem` 8 ==0 then 0 else 1)
   m = if req `rem` outlen == 0 then req `div` outlen else (req + outlen) `div` outlen
   w = iterate (\((kI,vI),wOld) -> let vN = hmac h kI (fc vI) in ((kI, encode vN), L.append wOld (Bin.encode vN))) ((key st', value st'), L.empty)
   ((kFinal, vFinal), wFinal) = head $ drop m w

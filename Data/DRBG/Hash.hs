@@ -1,5 +1,12 @@
 {-# LANGUAGE BangPatterns #-}
-module Data.DRBG.Hash where
+module Data.DRBG.Hash
+	( State(..)
+	, reseedInterval
+	, SeedLength (..)
+	, instantiate
+	, reseed
+	, generate
+	) where
 -- NIST SP 800-90 
 
 import qualified Data.ByteString as B
@@ -14,7 +21,7 @@ import Data.Bits (shiftR, shiftL)
 class SeedLength h where
   seedlen :: h -> Int
 
-reseed_interval = 2^48
+reseedInterval = 2^48
 
 -- Section 10.1.1.1, pg 35
 data State h = St
@@ -29,8 +36,8 @@ data State h = St
 
 -- step 9 from sectoin 9.1 (pg 26)
 -- section 10.1.1.2 pg 36
-instantiateAlgorithm :: (Hash h c d, SeedLength h) => h -> Entropy -> Nonce -> PersonalizationString -> State h
-instantiateAlgorithm h entropyInput nonce perStr =
+instantiate :: (Hash h c d, SeedLength h) => h -> Entropy -> Nonce -> PersonalizationString -> State h
+instantiate h entropyInput nonce perStr =
 	let seedMaterial = B.concat [entropyInput, nonce, perStr]
 	    seed = hash_df h seedMaterial (seedlen h) :: B.ByteString
 	    v = seed
@@ -38,8 +45,8 @@ instantiateAlgorithm h entropyInput nonce perStr =
 	in St v c 1 256 True h
 
 -- section 10.1.1.3 pg 37
-reseedAlgorithm :: (SeedLength h, Hash h c d) => State h -> Entropy -> AdditionalInput -> State h
-reseedAlgorithm st ent additionalInput =
+reseed :: (SeedLength h, Hash h c d) => State h -> Entropy -> AdditionalInput -> State h
+reseed st ent additionalInput =
 	let seedMaterial = B.concat [B.pack [1], value st, ent, additionalInput]
 	    seed = hash_df h seedMaterial (seedlen h)
 	    v = seed
@@ -49,9 +56,9 @@ reseedAlgorithm st ent additionalInput =
 
 -- section 10.1.1.4 pg 38
 -- Nothing indicates a need to reseed
-generateAlgorithm :: (Hash h c d, SeedLength h) => State h -> BitLen -> AdditionalInput -> Maybe (RandomBits, State h)
-generateAlgorithm st req additionalInput =
-	if (counter st > reseed_interval)
+generate :: (Hash h c d, SeedLength h) => State h -> BitLen -> AdditionalInput -> Maybe (RandomBits, State h)
+generate st req additionalInput =
+	if (counter st > reseedInterval)
 		then Nothing
 		else Just (retBits, st { value = v2, counter = cnt})
   where
