@@ -13,9 +13,12 @@ import Data.Crypto.HMAC
 import Data.DRBG
 import qualified Data.Binary as Bin
 
+type Key = B.ByteString
+type Value = B.ByteString
+
 data State h = St
-	{ value			:: !B.ByteString
-	, key			:: !B.ByteString
+	{ value			:: !Value
+	, key			:: !Key
 	, counter		:: !Integer
 	-- Start admin info
 	, securityStrength	:: !Int
@@ -38,14 +41,14 @@ update st input = st { value = newV , key = newK }
   (newK, newV) =
     if L.length input == 0
       then (k',v')
-      else let k'' = encode $ hmac h k (L.concat [fc v', L.singleton 1, input])
+      else let k'' = encode $ hmac h k' (L.concat [fc v', L.singleton 1, input])
            in (k'', encode $ hmac h k'' (fc v'))
 
 instantiate :: (Hash h c d) => h -> Entropy -> Nonce -> PersonalizationString -> State h
 instantiate h ent nonce perStr =
 	let seedMaterial = L.fromChunks [ent, nonce, perStr]
-	    k = B.replicate (outputLength h) 0
-	    v = B.replicate (outputLength h) 1
+	    k = B.replicate (outputLength h `div` 8) 0
+	    v = B.replicate (outputLength h `div` 8) 1
 	in update (St v k 1 (strength h) True h) seedMaterial
 
 reseed :: (Hash h c d) => State h -> Entropy -> AdditionalInput -> State h
@@ -55,15 +58,18 @@ generate :: (Hash h c d) => State h -> BitLength -> AdditionalInput -> Maybe (Ra
 generate st req additionalInput =
 	if(counter st > reseedInterval)
 		then Nothing
-		else Just (L.take (fromIntegral reqBytes) wFinal, stFinal { counter = 1 + counter st})
+		else Just (L.take (fromIntegral reqBytes) randBitsFinal, stFinal { counter = 1 + counter st})
   where
   h = hashAlg st
   st' = if B.length additionalInput == 0
 		then st
 		else update st (fc additionalInput)
   reqBytes = req `div` 8 + (if req `rem` 8 ==0 then 0 else 1)
-  m = if req `rem` outlen == 0 then req `div` outlen else (req + outlen) `div` outlen
-  w = iterate (\((kI,vI),wOld) -> let vN = hmac h kI (fc vI) in ((kI, encode vN), L.append wOld (Bin.encode vN))) ((key st', value st'), L.empty)
-  ((kFinal, vFinal), wFinal) = head $ drop m w
+  getV :: Key -> Value -> L.ByteString -> (Value, L.ByteString)
+  getV j u bs
+     | L.length bs >= fromIntegral reqBytes = (u, bs)
+     | otherwise               = let vNew = hmac h j (fc u) in (encode vNew, L.concat [bs, Bin.encode vNew])
+  (vFinal, randBitsFinal) = getV (key st') (value st') L.empty
+  kFinal = key st'
   stFinal = update (st' { key = kFinal, value = vFinal}) (fc additionalInput)
   outlen = outputLength h

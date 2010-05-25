@@ -12,10 +12,11 @@ type BitLength = Int
 class (Binary d, Serialize d, Pretty d)
     => Hash h ctx d | h -> d, h -> ctx, ctx -> d where
   outputLength   :: h -> BitLength
+  blockLength   :: h -> BitLength
   hashFunction   :: h -> ByteString -> d
   initialContext :: h -> ctx
   updateContext  :: ctx -> ByteString -> ctx
-  finalize       :: ctx -> ByteString -> d
+  finalize       :: ctx -> d
   strength       :: h -> Int
 
 class Cipher c ct k | k -> c, c -> ct where
