@@ -19,7 +19,7 @@ class (Binary d, Serialize d, Pretty d)
   finalize       :: ctx -> d
   strength       :: h -> Int
 
-class Cipher c ct k | k -> c, c -> ct where
+class (Binary ct, Serialize ct) => Cipher c ct k | k -> c, c -> ct where
   blockSize       :: c -> BitLength
   cipher          :: k -> ByteString -> ct
   decipher        :: k -> ct -> ByteString
