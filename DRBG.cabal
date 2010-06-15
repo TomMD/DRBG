@@ -14,8 +14,8 @@ tested-with:	GHC == 6.10.1
 extra-source-files:
 
 Library
-  Build-Depends: base == 4.*, cereal, bytestring, prettyclass, binary
+  Build-Depends: base == 4.*, cereal, bytestring, prettyclass, binary, tagged, crypto
   ghc-options:
   hs-source-dirs:
-  exposed-modules: Data.DRBG, Data.DRBG.Hash, Data.Crypto.Classes, Data.DRBG.HMAC, Data.Crypto.HMAC
+  exposed-modules: Data.DRBG, Data.DRBG.Hash, Data.DRBG.HMAC
   other-modules: Data.DRBG.HashDF
