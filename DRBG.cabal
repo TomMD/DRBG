@@ -14,7 +14,7 @@ tested-with:	GHC == 6.10.1
 extra-source-files:
 
 Library
-  Build-Depends: base == 4.*, cereal, bytestring, prettyclass, binary, tagged, crypto
+  Build-Depends: base == 4.*, cereal, bytestring, prettyclass, binary, tagged, crypto-api < 0.1.0.0
   ghc-options:
   hs-source-dirs:
   exposed-modules: Data.DRBG, Data.DRBG.Hash, Data.DRBG.HMAC
