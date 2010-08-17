@@ -44,8 +44,6 @@ main = hmacMain >> hashMain >> hmacCipher
 
 hmacCipher = do
 	print (Ser.encode (hmac k d `asTypeOf` hsh) == res)
-	print (B.unpack calcVal)
-	print (B.unpack res)
   where
   calcVal = Ser.encode (hmac k d `asTypeOf` hsh)
   hash = hashFunc hsh
@@ -68,10 +66,6 @@ hmacMain = do
 	st'' = M.reseed st' entropyRS additional
         Just (r1,_) = M.generate st'' 256 additional
     print $ Prelude.map (==res) [r1]
-    print $ LN.unpack r1
-    print $ LN.unpack res
-    print $ L.length r1
-    print $ L.length res
   where
   perstr = B.empty
   additional = B.empty

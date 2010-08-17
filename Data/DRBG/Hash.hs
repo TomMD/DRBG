@@ -35,7 +35,6 @@ data State d = St
 	, hsh			:: L.ByteString -> d
 	}
 
--- step 9 from sectoin 9.1 (pg 26)
 -- section 10.1.1.2 pg 36
 instantiate :: (Hash c d, SeedLength d) => Entropy -> Nonce -> PersonalizationString -> State d
 instantiate entropyInput nonce perStr =

@@ -69,11 +69,13 @@ generate st req additionalInput =
 		then st
 		else update st (fc additionalInput)
   reqBytes = req `div` 8 + (if req `rem` 8 ==0 then 0 else 1)
-  getV :: Key -> Value -> L.ByteString -> (Value, L.ByteString)
-  getV j u bs
+  getV :: Value -> L.ByteString -> (Value, L.ByteString)
+  getV u bs
      | L.length bs >= fromIntegral reqBytes = (u, bs)
-     | otherwise = let vNew = hmac j (fc u) `asTypeOf` d in (encode vNew, L.concat [bs, Bin.encode vNew])
-  (vFinal, randBitsFinal) = getV (key st') (value st') L.empty
+     | otherwise = let vNew = hmac' kFinal u `asTypeOf` d
+		       encV = encode vNew
+		   in getV encV (L.concat [bs, fc encV])
+  (vFinal, randBitsFinal) = getV (value st') L.empty
   kFinal = key st'
   stFinal = update (st' { key = kFinal, value = vFinal}) (fc additionalInput)
   outlen = outputLength .::. d
