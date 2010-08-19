@@ -125,28 +125,9 @@ categoryToTest_HMAC (props, ts) =
 		    Just (r1, _) = M.generate st2 256 (hx aIn2)
 		in r1
 	return (K (eIn, n, per, aIn1, eInRS, aInRS, aIn2) f (L.fromChunks [hexStringToBS ret]) name)
+
 -- Test the HMAC DRBG functionallity
-hmacMain = do
-    let st = M.instantiate entropy nonce perstr :: M.State SHADigest
-	Just (_,st') = M.generate st 256 additional
-	st'' = M.reseed st' entropyRS additional
-        Just (r1,_) = M.generate st'' 256 additional
-    print $ Prelude.map (==res) [r1]
-  where
-  perstr = B.empty
-  additional = B.empty
-  entropy = i2bs 256 0xebd11132d7837960500a436e467aba7dd28546faf6e74fa9950c56efb405505e
-  nonce = i2bs 128 0x9a5ebbb0fd780a00d52ee438e6f87084
-  entropyRS  = i2bs 256 0x785dd9360f2f52aa9153eb726536fcd470c75a9b6805d63b77c5f74113c8faff
-  res = L.fromChunks [i2bs 256 0x98ebbadbee0d67f7b8b70750b0da5e7d90572682b357bf580ed88c94529cce7f]
-{-
-  entropy = i2bs 256 0xebd11132d7837960500a436e467aba7dd28546faf6e74fa9950c56efb405505e
-  nonce = i2bs 128 0x9a5ebbb0fd780a00d52ee438e6f87084
-  perstr = B.empty
-  additional = B.empty
-  entropyRS  = i2bs 256 0x785dd9360f2f52aa9153eb726536fcd470c75a9b6805d63b77c5f74113c8faff
-  res = L.fromChunks [i2bs 256 0x98ebbadbee0d67f7b8b70750b0da5e7d90572682b357bf580ed88c94529cce7f]
--}
+hmacMain = nistTests_HMAC >>= runTests
 
 -- Verify the Hash-DRBG operation
 hashMain = do
