@@ -11,7 +11,14 @@ stability:	stable
 build-type:	Simple
 cabal-version:	>= 1.6
 tested-with:	GHC == 6.10.1
+Data-Files: Test/HMAC_DRBG.txt Test/Hash_DRBG.txt Test/CTR_DRBG.txt Test/Dual_EC_DRBG.txt
 extra-source-files:
+  Test/HMAC_DRBG.txt Test/Hash_DRBG.txt Test/CTR_DRBG.txt Test/Dual_EC_DRBG.txt
+
+flag test
+  description: Build a program to test the DRBG library
+  default: False
+
 
 Library
   Build-Depends: base == 4.*, cereal, bytestring, prettyclass, binary, tagged, crypto-api < 0.1.0.0
@@ -19,3 +26,10 @@ Library
   hs-source-dirs:
   exposed-modules: Data.DRBG, Data.DRBG.Hash, Data.DRBG.HMAC
   other-modules: Data.DRBG.HashDF
+
+Executable drbg_test
+  main-is: Test/KAT.hs
+  build-depends: base, QuickCheck, crypto-api, bytestring, binary, cereal, parsec >= 3.0, cryptohash
+  other-modules: Paths_DRBG
+  if !flag(test)
+    buildable: False

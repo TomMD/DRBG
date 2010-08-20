@@ -21,6 +21,7 @@ import Data.List (deleteBy)
 import Test.Crypto
 import Test.ParseNistKATs
 import Text.Parsec.ByteString
+import Paths_DRBG
 
 newtype SHADigest = SHADigest B.ByteString
 	deriving (Eq, Ord, Show)
@@ -30,7 +31,6 @@ instance Hash SHA.Ctx SHADigest where
   initialCtx = SHA.init
   updateCtx = SHA.update
   finalize ctx = SHADigest . SHA.finalize . SHA.update ctx
-  strength = Tagged 256
   blockLength = Tagged 512
 
 instance H.SeedLength SHADigest where
@@ -62,9 +62,11 @@ hmacCipher = do
   ko = L.fromChunks [B.map (`xor` 0x5c) k']
 
 
+-- Test the SHA-256 HMACs (other hash implementations will be tested once crypthash uses the crypto-api classes)
 nistTests_HMAC :: IO [Test]
 nistTests_HMAC = do
-	(Right cats) <- parseFromFile (many parseCategory) "HMAC_DRBG.txt"
+	file <- getDataFileName "Test/HMAC_DRBG.txt"
+	(Right cats) <- parseFromFile (many parseCategory) file
 	return (concat $ concatMap (maybeToList . categoryToTest_HMAC) cats)
 
 -- Currently run SHA-256 tests only
@@ -130,6 +132,7 @@ categoryToTest_HMAC (props, ts) =
 hmacMain = nistTests_HMAC >>= runTests
 
 -- Verify the Hash-DRBG operation
+-- FIXME parse the KAT files and run all the tests
 hashMain = do
     let st  = H.instantiate entropy nonce personalStr :: H.State SHADigest
 	Just (_,st') = H.generate st 256 additional
