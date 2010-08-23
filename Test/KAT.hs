@@ -76,7 +76,7 @@ categoryToTest_HMAC (props, ts) =
 		then Nothing
 		else let s = unlines $ map showProp props 
 			 h = hashFunc (undefined :: SHADigest)
-			 tests = concatMap (map katToTest . maybeToList . buildKAT) ts
+			 tests = concatMap (maybeToList . buildKAT) ts
 		     in Just tests
   where
   deleteF k lst = deleteBy (const $ (==) k . fst) undefined lst
@@ -88,7 +88,7 @@ categoryToTest_HMAC (props, ts) =
   buildKAT t
 	| fmap read (lookup "PredictionResistance" props) == Just True = do
 	cnt    <- lookup "COUNT" t
-	let name = testName ++ cnt
+	let name = testName ++ "-" ++ cnt
 	eIn    <- lookup "EntropyInput" t
 	n      <- lookup "Nonce" t
 	per    <- lookup "PersonalizationString" t
@@ -98,7 +98,7 @@ categoryToTest_HMAC (props, ts) =
 	aIn2   <- lookup "AdditionalInput" t'
 	eInPR2 <- lookup "EntropyInputPR" t'
 	ret    <- lookup "ReturnedBits" t'
-	let f (eIn, n, per, aIn1, eInPR1, aIn2, eInPR2) =
+	let f =
 		let hx = hexStringToBS
 		    st0 = M.instantiate (hx eIn) (hx n) (hx per) :: M.State SHADigest
 		    st1 = M.reseed st0 (hx eInPR1) (hx aIn1)
@@ -106,10 +106,10 @@ categoryToTest_HMAC (props, ts) =
 		    st3 = M.reseed st2 (hx eInPR2) (hx aIn2)
 		    Just (r1,_) = M.generate st3 256 B.empty
 		in r1
-	return (K (eIn, n, per, aIn1, eInPR1, aIn2, eInPR2) f (L.fromChunks [hexStringToBS ret]) name)
+	return (TK (f == L.fromChunks [hexStringToBS ret]) name)
 	| otherwise = do
 	cnt <- lookup "COUNT" t
-	let name = testName ++ cnt
+	let name = testName ++ "-" ++ cnt
 	eIn   <- lookup "EntropyInput" t
 	n     <- lookup "Nonce" t
 	per   <- lookup "PersonalizationString" t
@@ -119,42 +119,80 @@ categoryToTest_HMAC (props, ts) =
 	let t' = deleteF "AdditionalInput" t
 	aIn2  <- lookup "AdditionalInput" t'
 	ret   <- lookup "ReturnedBits" t
-	let f (eIn, n, per, aIn1, eInRS, aInRS, aIn2) =
+	let f =
 		let hx = hexStringToBS
 		    st0 = M.instantiate (hx eIn) (hx n) (hx per) :: M.State SHADigest
 		    Just (_,st1) = M.generate st0 256 (hx aIn1)
 		    st2 = M.reseed st1 (hx eInRS) (hx aInRS)
 		    Just (r1, _) = M.generate st2 256 (hx aIn2)
 		in r1
-	return (K (eIn, n, per, aIn1, eInRS, aInRS, aIn2) f (L.fromChunks [hexStringToBS ret]) name)
+	return (TK (f == L.fromChunks [hexStringToBS ret]) name)
 
 -- Test the HMAC DRBG functionallity
 hmacMain = nistTests_HMAC >>= runTests
 
--- Verify the Hash-DRBG operation
--- FIXME parse the KAT files and run all the tests
-hashMain = do
-    let st  = H.instantiate entropy nonce personalStr :: H.State SHADigest
-	Just (_,st') = H.generate st 256 additional
-	st'' = H.reseed st' reseedIn additional
-	Just (rb1, _) = H.generate st'' 256 additional
-    print [rb1 == res]
+hashMain = nistTests_Hash >>= runTests
+
+nistTests_Hash :: IO [Test]
+nistTests_Hash = do
+	file <- getDataFileName "Test/Hash_DRBG.txt"
+	(Right cats) <- parseFromFile (many parseCategory) file
+	return (concat $ concatMap (maybeToList . categoryToTest_Hash) cats)
+
+categoryToTest_Hash :: TestCategory -> Maybe [Test]
+categoryToTest_Hash (props, ts) =
+	if "SHA-256" `notElem` map fst props
+		then Nothing
+		else let h = hashFunc (undefined :: SHADigest)
+			 tests = concatMap (maybeToList . buildKAT) ts
+		     in Just tests
   where
-  hsh = (undefined :: SHADigest) 
-  entropy = i2bs 256 0xc8850054b417efb9325b5782b63b3be7a8a444949d742636d9a5303e04b933fa
-  nonce   = i2bs 128 0x52a81de4b094c470abd675eb05695704
-  reseedIn = i2bs 256 0xfab438f89d3839fe202e0da304d1479c34e4f574fc5cc0d8465146231a26b62c
-  personalStr = B.empty
-  additional = B.empty
-  res = L.fromChunks [i2bs 256 0xb2a157ceefdeff0582a4d7dfa7d59dad62eca62cb69ca1973a0788a13ccc7894 ]
-{-
-  entropy = i2bs 256 0x7f8c07b5039309c97e8e868be70f7311dec60faa434ea24e1437764a8656152b
-  nonce   = i2bs 128 0xc63a0b0333ceb1604de5ee8344a7d875
-  reseedIn = i2bs 256 0xf71ab7dbf37dc4f949732c915f699b7a937ad8d7d63c818283cb07bc7f16eb15
-  personalStr = B.empty
-  additional = B.empty
-  res = L.fromChunks [i2bs 256 0xbde925d138d723faa007f455f13b67c0af46a0a733360533d47766622426c01f ]
--}
+  deleteF k lst = deleteBy (const $ (==) k . fst) undefined lst
+  isPR = Just True == fmap read (lookup "PredictionResistance" props)
+  testName = fst (head props) ++ (if isPR then "_PR" else "")
+  buildKAT t
+	| isPR = do
+	cnt <- lookup "COUNT" t
+	let name = testName ++ "-" ++ cnt
+	eIn <- lookup "EntropyInput" t
+	n   <- lookup "Nonce" t
+	per <- lookup "PersonalizationString" t
+        aIn1   <- lookup "AdditionalInput" t
+        eInPR1 <- lookup "EntropyInputPR" t
+        let t' = deleteF "EntropyInputPR" (deleteF "AdditionalInput" t)
+        aIn2   <- lookup "AdditionalInput" t'
+        eInPR2 <- lookup "EntropyInputPR" t'
+        ret    <- lookup "ReturnedBits" t'
+        let f =
+                let hx = hexStringToBS
+                    st0 = H.instantiate (hx eIn) (hx n) (hx per) :: H.State SHADigest
+                    st1 = H.reseed st0 (hx eInPR1) (hx aIn1)
+                    Just (_,st2) = H.generate st1 256 B.empty
+                    st3 = H.reseed st2 (hx eInPR2) (hx aIn2)
+                    Just (r1,_) = H.generate st3 256 B.empty
+                in r1
+        return (TK (f == L.fromChunks [hexStringToBS ret]) name)
+  buildKAT t
+	| otherwise = do
+        cnt <- lookup "COUNT" t
+        let name = testName ++ "-" ++ cnt
+        eIn   <- lookup "EntropyInput" t
+        n     <- lookup "Nonce" t
+        per   <- lookup "PersonalizationString" t
+        aIn1  <- lookup "AdditionalInput" t
+        eInRS <- lookup "EntropyInputReseed" t
+        aInRS <- lookup "AdditionalInputReseed" t
+        let t' = deleteF "AdditionalInput" t
+        aIn2  <- lookup "AdditionalInput" t'
+        ret   <- lookup "ReturnedBits" t
+        let f =
+                let hx = hexStringToBS
+                    st0 = H.instantiate (hx eIn) (hx n) (hx per) :: H.State SHADigest
+                    Just (_,st1) = H.generate st0 256 (hx aIn1)
+                    st2 = H.reseed st1 (hx eInRS) (hx aInRS)
+                    Just (r1, _) = H.generate st2 256 (hx aIn2)
+                in r1
+        return (TK (f == L.fromChunks [hexStringToBS ret]) name)
 
 i2bs :: BitLength -> Integer -> B.ByteString
 i2bs l i = B.unfoldr (\l' -> if l' < 0 then Nothing else Just (fromIntegral (i `shiftR` l'), l' - 8)) (l-8)
