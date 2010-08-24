@@ -11,7 +11,7 @@ module Data.DRBG.Hash
 
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as L
-import Data.DRBG
+import Data.DRBG.Types
 import Data.DRBG.HashDF
 import Data.Crypto.Classes
 import Data.Serialize (encode)

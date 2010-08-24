@@ -1,4 +1,4 @@
-module Data.DRBG where
+module Data.DRBG.Types where
 
 import Data.ByteString as B
 import Data.ByteString.Lazy as L

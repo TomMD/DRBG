@@ -11,7 +11,7 @@ import Data.Serialize (encode)
 import Data.Crypto.Classes
 import Data.Crypto.HMAC
 import Data.Crypto.Types
-import Data.DRBG
+import Data.DRBG.Types
 import qualified Data.Binary as Bin
 
 type Key = B.ByteString

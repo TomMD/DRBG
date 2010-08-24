@@ -24,8 +24,8 @@ Library
   Build-Depends: base == 4.*, cereal, bytestring, prettyclass, binary, tagged, crypto-api < 0.1.0.0
   ghc-options:
   hs-source-dirs:
-  exposed-modules: Data.DRBG, Data.DRBG.Hash, Data.DRBG.HMAC
-  other-modules: Data.DRBG.HashDF
+  exposed-modules: Data.DRBG.Hash, Data.DRBG.HMAC
+  other-modules: Data.DRBG.HashDF, Data.DRBG.Types
 
 Executable drbg_test
   main-is: Test/KAT.hs
