@@ -44,23 +44,7 @@ instance Binary SHADigest where
 	get = undefined
 	put (SHADigest d) = P.putByteString d
 
-main = hmacMain >> hashMain >> hmacCipher
-
--- Verify the HMAC implementation
-hmacCipher = do
-	print (Ser.encode (hmac k d `asTypeOf` hsh) == res)
-  where
-  calcVal = Ser.encode (hmac k d `asTypeOf` hsh)
-  hash = hashFunc hsh
-  hsh = (undefined :: SHADigest)
-  k = B.replicate 32 0x0b
-  d = L.pack "Hi There"
-  res = i2bs 256 0x198a607eb44bfbc69903a0f1cf2bbdc5ba0aa3f3d9ae3c1c7a3b1696a0b68cf7
-  d' = Bin.encode (hash $ L.concat [ki, d])
-  k' = Ser.encode (hash (L.fromChunks [k]))
-  ki = L.fromChunks [B.map (`xor` 0x36) k']
-  ko = L.fromChunks [B.map (`xor` 0x5c) k']
-
+main = hmacMain >> hashMain
 
 -- Test the SHA-256 HMACs (other hash implementations will be tested once crypthash uses the crypto-api classes)
 nistTests_HMAC :: IO [Test]
