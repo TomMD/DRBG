@@ -79,15 +79,20 @@ generate st req additionalInput =
 
 -- 10.1.1.4, pg 39
 hashGen :: (Hash c d, SeedLength d) => d -> BitLen -> B.ByteString -> RandomBits
-hashGen d r val = L.take (fromIntegral reqBytes) . head . drop m . map snd $ w
+hashGen d r val = L.take (fromIntegral reqBytes) . L.fromChunks $ getW val m
   where
   reqBytes = if r `mod` 8 == 0 then r `div` 8 else (r + 8) `div` 8
   m = if r `rem` outlen == 0 then r `div` outlen else (r + outlen) `div` outlen
-  dat = val
-  w = iterate (\(d,wOld) -> (i2bs slen (bs2i d + 1), L.append wOld (Bin.encode $ hash d))) (val, L.empty)
+  getW :: B.ByteString -> Int -> [B.ByteString]
+  getW _ 0 = []
+  getW dat i =
+	let wi = encode (h dat)
+	    dat' = i2bs slen (bs2i dat + 1)
+	    rest = getW dat' (i-1)
+	in wi : rest
   slen = seedlen `for` d
   outlen = outputLength `for` d
-  hash = hashFunc d . L.fromChunks . \b -> [b]
+  h = hashFunc' d
 
 -- Appendix B
 i2bs :: BitLen -> Integer -> B.ByteString

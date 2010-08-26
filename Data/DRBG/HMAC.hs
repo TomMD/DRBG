@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 module Data.DRBG.HMAC
 	( State(..)
 	, reseedInterval
@@ -69,13 +70,16 @@ generate st req additionalInput =
 		then st
 		else update st (fc additionalInput)
   reqBytes = req `div` 8 + (if req `rem` 8 ==0 then 0 else 1)
-  getV :: Value -> L.ByteString -> (Value, L.ByteString)
-  getV u bs
-     | L.length bs >= fromIntegral reqBytes = (u, bs)
-     | otherwise = let vNew = hmac' kFinal u `asTypeOf` d
-		       encV = encode vNew
-		   in getV encV (L.concat [bs, fc encV])
-  (vFinal, randBitsFinal) = getV (value st') L.empty
+  iterations = reqBytes `div` outlen + (if reqBytes `rem` outlen /= 0 then 1 else 0)
+  getV :: Value -> Int -> (Value, [B.ByteString])
+  getV !u 0 = (u, [])
+  getV !u i = 
+	let !vNew = hmac' kFinal u `asTypeOf` d
+	    !encV = encode vNew
+	    (uFinal, rest) = getV encV (i - 1)
+	in (uFinal, encV : rest)
+  (vFinal, randBitsList) = getV (value st') iterations
+  randBitsFinal = L.take (fromIntegral reqBytes) $ L.fromChunks randBitsList
   kFinal = key st'
   stFinal = update (st' { key = kFinal, value = vFinal}) (fc additionalInput)
-  outlen = outputLength .::. d
+  outlen = outputLength .::. d `div` 8
