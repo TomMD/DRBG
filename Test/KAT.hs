@@ -3,7 +3,7 @@ import qualified Data.DRBG.Hash as H
 import qualified Data.DRBG.HMAC as M
 import Data.CryptoHash.SHA256 as SHA
 import qualified Data.ByteString as B
-import Data.Crypto.Classes
+import Crypto.Classes
 import Data.Serialize as Ser
 import Data.Serialize.Put as S
 import Data.Binary as Bin
@@ -12,15 +12,14 @@ import Text.PrettyPrint.HughesPJClass
 import qualified Data.ByteString.Lazy.Char8 as L
 import qualified Data.ByteString.Lazy as LN
 import Data.Bits (shiftR, shiftL)
-import Data.Crypto.HMAC
-import Data.Crypto.Types
+import Crypto.HMAC
+import Crypto.Types
 import Data.Bits (xor)
 import Data.Tagged
 import Data.Maybe (maybeToList)
 import Data.List (deleteBy)
 import Test.Crypto
 import Test.ParseNistKATs
-import Text.Parsec.ByteString
 import Paths_DRBG
 
 newtype SHADigest = SHADigest B.ByteString

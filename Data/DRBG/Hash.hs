@@ -1,6 +1,6 @@
 {-# LANGUAGE BangPatterns, MonomorphismRestriction #-}
 module Data.DRBG.Hash
-	( State(..)
+	( State
 	, reseedInterval
 	, SeedLength (..)
 	, instantiate
@@ -13,7 +13,7 @@ import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as L
 import Data.DRBG.Types
 import Data.DRBG.HashDF
-import Data.Crypto.Classes
+import Crypto.Classes
 import Data.Serialize (encode)
 import qualified Data.Binary as Bin
 import Data.Bits (shiftR, shiftL)
@@ -30,8 +30,6 @@ data State d = St
 	, constant		:: B.ByteString -- seedlen bits
 	, counter		:: Integer      -- Number of RBG requests since last reseed
 	-- start admin info
-	-- , securityStrength	:: Int  IMPLICIT in "hsh" via the Hash class
-	, predictionResistant	:: Bool
 	, hsh			:: L.ByteString -> d
 	}
 
@@ -45,7 +43,7 @@ instantiate entropyInput nonce perStr =
 	    c = hash_df f (B.cons 0 v) slen
 	    f = hash
 	    d = f undefined
-	in St v c 1 True f
+	in St v c 1 f
 
 -- section 10.1.1.3 pg 37
 reseed :: (SeedLength d, Hash c d) => State d -> Entropy -> AdditionalInput -> State d
@@ -56,7 +54,7 @@ reseed st ent additionalInput =
 	    c = hash_df f (B.cons 0 v) (seedlen `for` d)
 	    f = hash
 	    d = f undefined
-	in St v c 1 True f
+	in St v c 1 f
 
 -- section 10.1.1.4 pg 38
 -- Nothing indicates a need to reseed

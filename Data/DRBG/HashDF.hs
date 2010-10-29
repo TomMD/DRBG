@@ -2,7 +2,7 @@ module Data.DRBG.HashDF where
 
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as L
-import Data.Crypto.Classes
+import Crypto.Classes
 import Data.Serialize (encode)
 import Data.Serialize.Put (runPut, putWord32be)
 import Data.Word (Word8, Word32)

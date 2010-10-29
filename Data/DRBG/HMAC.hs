@@ -1,6 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
 module Data.DRBG.HMAC
-	( State(..)
+	( State
 	, reseedInterval
 	, instantiate
 	, reseed
@@ -9,9 +9,9 @@ module Data.DRBG.HMAC
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as L
 import Data.Serialize (encode)
-import Data.Crypto.Classes
-import Data.Crypto.HMAC
-import Data.Crypto.Types
+import Crypto.Classes
+import Crypto.HMAC
+import Crypto.Types
 import Data.DRBG.Types
 import qualified Data.Binary as Bin
 
@@ -23,8 +23,6 @@ data State d = St
 	, key			:: !Key
 	, counter		:: !Integer
 	-- Start admin info
-	-- , securityStrength	:: !Int -- See hashAlg for strength
-	, predictionResistant	:: !Bool
 	, hashAlg		:: L.ByteString -> d
 	}
 
@@ -35,16 +33,17 @@ fc = L.fromChunks . \s -> [s]
 update :: (Hash c d) => State d -> L.ByteString -> State d
 update st input = st { value = newV , key = newK }
   where
+  hm k = hmac (MacKey k)
   d  = hashAlg st undefined
   k  = key st
   v  = value st
-  k' = encode $ (hmac k (L.concat [fc v, L.singleton 0, input]) `asTypeOf` d)
-  v' = encode $ (hmac k' (fc v) `asTypeOf` d)
+  k' = encode $ (hm k (L.concat [fc v, L.singleton 0, input]) `asTypeOf` d)
+  v' = encode $ (hm k' (fc v) `asTypeOf` d)
   (newK, newV) =
     if L.length input == 0
       then (k',v')
-      else let k'' = encode $ hmac k' (L.concat [fc v', L.singleton 1, input]) `asTypeOf` d
-           in (k'', encode $ hmac k'' (fc v') `asTypeOf` d)
+      else let k'' = encode $ hm k' (L.concat [fc v', L.singleton 1, input]) `asTypeOf` d
+           in (k'', encode $ hm k'' (fc v') `asTypeOf` d)
 
 instantiate :: (Hash c d) => Entropy -> Nonce -> PersonalizationString -> State d
 instantiate ent nonce perStr = st
@@ -52,7 +51,7 @@ instantiate ent nonce perStr = st
   seedMaterial = L.fromChunks [ent, nonce, perStr]
   k = B.replicate olen 0
   v = B.replicate olen 1
-  st =  update (St v k 1 True hash) seedMaterial
+  st =  update (St v k 1 hash) seedMaterial
   d  = hashAlg st undefined
   olen = (outputLength .::. d) `div` 8
 
@@ -74,7 +73,7 @@ generate st req additionalInput =
   getV :: Value -> Int -> (Value, [B.ByteString])
   getV !u 0 = (u, [])
   getV !u i = 
-	let !vNew = hmac' kFinal u `asTypeOf` d
+	let !vNew = hmac' (MacKey kFinal) u `asTypeOf` d
 	    !encV = encode vNew
 	    (uFinal, rest) = getV encV (i - 1)
 	in (uFinal, encV : rest)
