@@ -13,6 +13,8 @@ import Crypto.Random
 import Crypto.Hash.SHA512 (SHA512)
 import Crypto.Hash.SHA384 (SHA384)
 import Crypto.Hash.SHA256 (SHA256)
+import Crypto.Hash.SHA224 (SHA224)
+import Crypto.Hash.SHA1 (SHA1)
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as L
 import Data.Tagged (Tagged(..))
@@ -26,6 +28,12 @@ instance H.SeedLength SHA384 where
 	seedlen = Tagged  888
 
 instance H.SeedLength SHA256 where
+	seedlen = Tagged 440
+
+instance H.SeedLength SHA224 where
+	seedlen = Tagged 440
+
+instance H.SeedLength SHA1 where
 	seedlen = Tagged 440
 
 -- |An alias for an HMAC generator using SHA512

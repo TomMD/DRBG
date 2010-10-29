@@ -1,7 +1,12 @@
 {-# LANGUAGE EmptyDataDecls, MultiParamTypeClasses #-}
-import qualified Data.DRBG.Hash as H
-import qualified Data.DRBG.HMAC as M
-import Data.CryptoHash.SHA256 as SHA
+import qualified Crypto.Random.DRBG.Hash as H
+import qualified Crypto.Random.DRBG.HMAC as M
+import Crypto.Random.DRBG
+import Crypto.Hash.SHA1
+import Crypto.Hash.SHA224
+import Crypto.Hash.SHA256
+import Crypto.Hash.SHA384
+import Crypto.Hash.SHA512
 import qualified Data.ByteString as B
 import Crypto.Classes
 import Data.Serialize as Ser
@@ -17,49 +22,37 @@ import Crypto.Types
 import Data.Bits (xor)
 import Data.Tagged
 import Data.Maybe (maybeToList)
-import Data.List (deleteBy)
+import Data.List (deleteBy, isPrefixOf)
 import Test.Crypto
 import Test.ParseNistKATs
 import Paths_DRBG
-
-newtype SHADigest = SHADigest B.ByteString
-	deriving (Eq, Ord, Show)
-
-instance Hash SHA.Ctx SHADigest where
-  outputLength = Tagged 256
-  initialCtx = SHA.init
-  updateCtx = SHA.update
-  finalize ctx = SHADigest . SHA.finalize . SHA.update ctx
-  blockLength = Tagged 512
-
-instance H.SeedLength SHADigest where
-	seedlen = Tagged 440
-
-instance Serialize SHADigest where
-	get = undefined
-	put (SHADigest d) = S.putByteString d
-
-instance Binary SHADigest where
-	get = undefined
-	put (SHADigest d) = P.putByteString d
 
 main = hmacMain >> hashMain
 
 -- Test the SHA-256 HMACs (other hash implementations will be tested once crypthash uses the crypto-api classes)
 nistTests_HMAC :: IO [Test]
 nistTests_HMAC = do
-	file <- getDataFileName "Test/HMAC_DRBG.txt"
-	(Right cats) <- parseFromFile (many parseCategory) file
+	contents <-  getDataFileName "Test/HMAC_DRBG.txt" >>= readFile
+	let cats = parseCategories "COUNT" contents
 	return (concat $ concatMap (maybeToList . categoryToTest_HMAC) cats)
 
 -- Currently run SHA-256 tests only
 categoryToTest_HMAC :: TestCategory -> Maybe [Test]
 categoryToTest_HMAC (props, ts) =
-	if "SHA-256" `notElem` map fst props
-		then Nothing
-		else let s = unlines $ map showProp props 
-			 h = hashFunc (undefined :: SHADigest)
-			 tests = concatMap (maybeToList . buildKAT) ts
+	let p =
+	      case shaNumber props of
+		Just 1   -> let p = Proxy :: Proxy SHA1   in build p
+		Just 224 -> let p = Proxy :: Proxy SHA224 in build p
+		Just 256 -> let p = Proxy :: Proxy SHA256 in build p
+		Just 384 -> let p = Proxy :: Proxy SHA384 in build p
+		Just 512 -> let p = Proxy :: Proxy SHA512 in build p
+		_ -> error $ "Unrecognized Hash when building HMAC tests" ++ (show props)
+	in case p of
+		Nothing -> Nothing
+		Just b  ->
+		     let s = unlines $ map showProp props 
+			 h = hashFunc (undefined :: SHA256)
+			 tests = concatMap (maybeToList . b) ts
 		     in Just tests
   where
   deleteF k lst = deleteBy (const $ (==) k . fst) undefined lst
@@ -67,8 +60,10 @@ categoryToTest_HMAC (props, ts) =
   showProp (p,"") = '[' : p ++ "]"
   showProp (p,v)  = '[' : p ++ " = " ++ v ++ "]"
   testName = fst (head props) ++ (if isPR then "_PR" else "")
---   buildKat :: [Record] -> Maybe (KAT (String, String, String, String, String, String, String) B.ByteString)
-  buildKAT t
+  build :: Hash c s => Proxy s -> Maybe ([Record] -> Maybe Test)
+  build = Just . buildKAT . proxyToHMACState
+  -- buildKAT :: Proxy (M.State a) -> [Record] -> Maybe Test
+  buildKAT p t
 	| fmap read (lookup "PredictionResistance" props) == Just True = do
 	cnt    <- lookup "COUNT" t
 	let name = testName ++ "-" ++ cnt
@@ -82,12 +77,13 @@ categoryToTest_HMAC (props, ts) =
 	eInPR2 <- lookup "EntropyInputPR" t'
 	ret    <- lookup "ReturnedBits" t'
 	let f =
-		let hx = hexStringToBS
-		    st0 = M.instantiate (hx eIn) (hx n) (hx per) :: M.State SHADigest
-		    st1 = M.reseed st0 (hx eInPR1) (hx aIn1)
-		    Just (_,st2) = M.generate st1 256 B.empty
+		let olen = proxy outputLength (proxyUnwrapHMACState p)
+		    hx = hexStringToBS
+		    st0 = M.instantiate (hx eIn) (hx n) (hx per)
+		    st1 = M.reseed st0 (hx eInPR1) (hx aIn1) `asProxyTypeOf` p
+		    Just (_,st2) = M.generate st1 olen B.empty
 		    st3 = M.reseed st2 (hx eInPR2) (hx aIn2)
-		    Just (r1,_) = M.generate st3 256 B.empty
+		    Just (r1,_) = M.generate st3 olen B.empty
 		in r1
 	return (TK (f == L.fromChunks [hexStringToBS ret]) name)
 	| otherwise = do
@@ -103,11 +99,12 @@ categoryToTest_HMAC (props, ts) =
 	aIn2  <- lookup "AdditionalInput" t'
 	ret   <- lookup "ReturnedBits" t
 	let f =
-		let hx = hexStringToBS
-		    st0 = M.instantiate (hx eIn) (hx n) (hx per) :: M.State SHADigest
-		    Just (_,st1) = M.generate st0 256 (hx aIn1)
+		let olen = proxy outputLength (proxyUnwrapHMACState p)
+		    hx = hexStringToBS
+		    st0 = M.instantiate (hx eIn) (hx n) (hx per) `asProxyTypeOf` p
+		    Just (_,st1) = M.generate st0 olen (hx aIn1)
 		    st2 = M.reseed st1 (hx eInRS) (hx aInRS)
-		    Just (r1, _) = M.generate st2 256 (hx aIn2)
+		    Just (r1, _) = M.generate st2 olen (hx aIn2)
 		in r1
 	return (TK (f == L.fromChunks [hexStringToBS ret]) name)
 
@@ -118,22 +115,30 @@ hashMain = nistTests_Hash >>= runTests
 
 nistTests_Hash :: IO [Test]
 nistTests_Hash = do
-	file <- getDataFileName "Test/Hash_DRBG.txt"
-	(Right cats) <- parseFromFile (many parseCategory) file
+	contents <- getDataFileName "Test/Hash_DRBG.txt" >>= readFile
+	let cats = parseCategories "COUNT" contents
 	return (concat $ concatMap (maybeToList . categoryToTest_Hash) cats)
 
 categoryToTest_Hash :: TestCategory -> Maybe [Test]
 categoryToTest_Hash (props, ts) =
-	if "SHA-256" `notElem` map fst props
-		then Nothing
-		else let h = hashFunc (undefined :: SHADigest)
-			 tests = concatMap (maybeToList . buildKAT) ts
-		     in Just tests
+	let p =
+	      case shaNumber props of
+		Just 1   -> let p = Proxy :: Proxy SHA1   in build p
+		Just 224 -> let p = Proxy :: Proxy SHA224 in build p
+		Just 256 -> let p = Proxy :: Proxy SHA256 in build p
+		Just 384 -> let p = Proxy :: Proxy SHA384 in build p
+		Just 512 -> let p = Proxy :: Proxy SHA512 in build p
+		_ -> error $ "Unrecognized hash when building Hash DRBG test" ++ (show props)
+	in case p of
+		Nothing -> Nothing
+		Just b  -> Just $ concatMap (maybeToList . b) ts
   where
   deleteF k lst = deleteBy (const $ (==) k . fst) undefined lst
   isPR = Just True == fmap read (lookup "PredictionResistance" props)
   testName = fst (head props) ++ (if isPR then "_PR" else "")
-  buildKAT t
+  build :: (Hash c s, H.SeedLength s) => Proxy s -> Maybe ([Record] -> Maybe Test)
+  build = Just . buildKAT . proxyToHashState
+  buildKAT p t
 	| isPR = do
 	cnt <- lookup "COUNT" t
 	let name = testName ++ "-" ++ cnt
@@ -147,15 +152,16 @@ categoryToTest_Hash (props, ts) =
         eInPR2 <- lookup "EntropyInputPR" t'
         ret    <- lookup "ReturnedBits" t'
         let f =
-                let hx = hexStringToBS
-                    st0 = H.instantiate (hx eIn) (hx n) (hx per) :: H.State SHADigest
+                let olen = proxy outputLength (proxyUnwrapHashState p)
+		    hx = hexStringToBS
+                    st0 = H.instantiate (hx eIn) (hx n) (hx per) `asProxyTypeOf` p
                     st1 = H.reseed st0 (hx eInPR1) (hx aIn1)
-                    Just (_,st2) = H.generate st1 256 B.empty
+                    Just (_,st2) = H.generate st1 olen B.empty
                     st3 = H.reseed st2 (hx eInPR2) (hx aIn2)
-                    Just (r1,_) = H.generate st3 256 B.empty
+                    Just (r1,_) = H.generate st3 olen B.empty
                 in r1
         return (TK (f == L.fromChunks [hexStringToBS ret]) name)
-  buildKAT t
+  buildKAT p t
 	| otherwise = do
         cnt <- lookup "COUNT" t
         let name = testName ++ "-" ++ cnt
@@ -169,13 +175,20 @@ categoryToTest_Hash (props, ts) =
         aIn2  <- lookup "AdditionalInput" t'
         ret   <- lookup "ReturnedBits" t
         let f =
-                let hx = hexStringToBS
-                    st0 = H.instantiate (hx eIn) (hx n) (hx per) :: H.State SHADigest
-                    Just (_,st1) = H.generate st0 256 (hx aIn1)
+                let olen = proxy outputLength (proxyUnwrapHashState p)
+		    hx = hexStringToBS
+                    st0 = H.instantiate (hx eIn) (hx n) (hx per) `asProxyTypeOf` p
+                    Just (_,st1) = H.generate st0 olen (hx aIn1)
                     st2 = H.reseed st1 (hx eInRS) (hx aInRS)
-                    Just (r1, _) = H.generate st2 256 (hx aIn2)
+                    Just (r1, _) = H.generate st2 olen (hx aIn2)
                 in r1
         return (TK (f == L.fromChunks [hexStringToBS ret]) name)
+
+proxyUnwrapHashState :: Proxy (H.State a) -> Proxy a
+proxyUnwrapHashState = const Proxy
+
+proxyUnwrapHMACState :: Proxy (M.State a) -> Proxy a
+proxyUnwrapHMACState = const Proxy
 
 i2bs :: BitLength -> Integer -> B.ByteString
 i2bs l i = B.unfoldr (\l' -> if l' < 0 then Nothing else Just (fromIntegral (i `shiftR` l'), l' - 8)) (l-8)
@@ -183,3 +196,14 @@ i2bs l i = B.unfoldr (\l' -> if l' < 0 then Nothing else Just (fromIntegral (i `
 bs2i :: B.ByteString -> Integer
 bs2i bs = B.foldl' (\i b -> (i `shiftL` 8) + fromIntegral b) 0 bs
 
+proxyToHMACState :: Proxy a -> Proxy (M.State a)
+proxyToHMACState _ = Proxy
+
+proxyToHashState :: Proxy a -> Proxy (H.State a)
+proxyToHashState _ = Proxy
+
+shaNumber :: Properties -> Maybe Int
+shaNumber ps =
+	case filter ("SHA-" `isPrefixOf`) (map fst ps) of
+		[s] -> Just $ read (drop 4 s)
+		[]  -> Nothing
