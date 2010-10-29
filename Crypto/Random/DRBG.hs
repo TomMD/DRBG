@@ -1,23 +1,23 @@
 {-# LANGUAGE EmptyDataDecls, FlexibleInstances, TypeSynonymInstances #-}
-module Data.DRBG
+module Crypto.Random.DRBG
 	( HMAC, HASH
 	, GenXor(..)
 	, GenAutoReseed(..)
 	, module Crypto.Random
 	) where
 
-import qualified Data.DRBG.HMAC as M
-import qualified Data.DRBG.Hash as H
+import qualified Crypto.Random.DRBG.HMAC as M
+import qualified Crypto.Random.DRBG.Hash as H
 import Crypto.Classes
 import Crypto.Random
-import Crypto.Hash.SHA512
-import qualified Crypto.Hash.SHA512 as Sha512
+import Crypto.Hash.SHA512 (SHA512)
 import Crypto.Hash.SHA384 (SHA384)
 import Crypto.Hash.SHA256 (SHA256)
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as L
 import Data.Tagged (Tagged(..))
 import Data.Bits (xor)
+import Control.Arrow (second)
 
 instance H.SeedLength SHA512 where
 	seedlen = Tagged 888
@@ -64,9 +64,6 @@ fmap' :: (b -> c) -> Either a b -> Either a c
 fmap' _ (Left x) = Left x
 fmap' f (Right g) = Right (f g)
 
-second :: (b -> c) -> (a, b) -> (a, c)
-second f (a, b) = (a, f b)
-
 instance CryptoRandomGen HASH where
 	newGen bs = Right $ H.instantiate bs B.empty B.empty
 	genSeedLength = Tagged $ 512 `div` 8
@@ -88,6 +85,8 @@ helper1 = const undefined
 helper2 :: Tagged (GenAutoReseed a b) Int -> b
 helper2 = const undefined
 
+-- |@g :: GenAutoReseed a b@ is a generator of type a that gets
+-- automatically reseeded by generator b upon every 32kB generated.
 data GenAutoReseed a b = GenAutoReseed !a !b !Int !Int
 
 instance (CryptoRandomGen a, CryptoRandomGen b) => CryptoRandomGen (GenAutoReseed a b) where
@@ -119,6 +118,8 @@ instance (CryptoRandomGen a, CryptoRandomGen b) => CryptoRandomGen (GenAutoResee
 		b' <- reseed b b2
 		return $ GenAutoReseed a' b' rs 0
 
+-- |@g :: GenXor a b@ generates bytes with sub-generators a and b 
+-- and exclusive-or's the outputs to produce the resulting bytes.
 data GenXor a b = GenXor !a !b
 
 helperXor1 :: Tagged (GenXor a b) c -> a

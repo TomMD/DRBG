@@ -1,5 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
-module Data.DRBG.HMAC
+module Crypto.Random.DRBG.HMAC
 	( State
 	, reseedInterval
 	, instantiate
@@ -12,7 +12,7 @@ import Data.Serialize (encode)
 import Crypto.Classes
 import Crypto.HMAC
 import Crypto.Types
-import Data.DRBG.Types
+import Crypto.Random.DRBG.Types
 import qualified Data.Binary as Bin
 
 type Key = B.ByteString

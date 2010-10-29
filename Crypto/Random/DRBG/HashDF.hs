@@ -1,4 +1,4 @@
-module Data.DRBG.HashDF where
+module Crypto.Random.DRBG.HashDF where
 
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as L

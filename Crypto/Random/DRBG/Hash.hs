@@ -1,5 +1,5 @@
 {-# LANGUAGE BangPatterns, MonomorphismRestriction #-}
-module Data.DRBG.Hash
+module Crypto.Random.DRBG.Hash
 	( State
 	, reseedInterval
 	, SeedLength (..)
@@ -11,8 +11,8 @@ module Data.DRBG.Hash
 
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as L
-import Data.DRBG.Types
-import Data.DRBG.HashDF
+import Crypto.Random.DRBG.Types
+import Crypto.Random.DRBG.HashDF
 import Crypto.Classes
 import Data.Serialize (encode)
 import qualified Data.Binary as Bin

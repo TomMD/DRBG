@@ -1,4 +1,4 @@
-module Data.DRBG.Types where
+module Crypto.Random.DRBG.Types where
 
 import Data.ByteString as B
 import Data.ByteString.Lazy as L
