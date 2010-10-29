@@ -60,10 +60,6 @@ instance CryptoRandomGen HMAC where
 			Just (r,s) -> Right (B.concat . L.toChunks $ r, s)
 	reseed g ent = Right $ M.reseed g ent B.empty
 
-fmap' :: (b -> c) -> Either a b -> Either a c
-fmap' _ (Left x) = Left x
-fmap' f (Right g) = Right (f g)
-
 instance CryptoRandomGen HASH where
 	newGen bs = Right $ H.instantiate bs B.empty B.empty
 	genSeedLength = Tagged $ 512 `div` 8
