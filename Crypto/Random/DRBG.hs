@@ -3,6 +3,7 @@ module Crypto.Random.DRBG
 	( HMAC, HASH
 	, GenXor(..)
 	, GenAutoReseed(..)
+	, GenBuffered
 	, module Crypto.Random
 	) where
 
@@ -17,9 +18,9 @@ import Crypto.Hash.SHA224 (SHA224)
 import Crypto.Hash.SHA1 (SHA1)
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as L
-import Data.Tagged (Tagged(..))
+import Data.Tagged
 import Data.Bits (xor)
-import Control.Arrow (second)
+import Control.Parallel (par)
 
 instance H.SeedLength SHA512 where
 	seedlen = Tagged 888
@@ -39,7 +40,7 @@ instance H.SeedLength SHA1 where
 -- |An alias for an HMAC generator using SHA512
 type HMAC = M.State SHA512
 
--- |An Alias for a HASH generators using SHA512
+-- |An Alias for a HASH generator using SHA512
 type HASH = H.State SHA512
 
 newGenAutoReseed :: (CryptoRandomGen a, CryptoRandomGen b) => B.ByteString -> Int -> Either GenError (GenAutoReseed a b)
@@ -91,6 +92,18 @@ helper2 = const undefined
 
 -- |@g :: GenAutoReseed a b@ is a generator of type a that gets
 -- automatically reseeded by generator b upon every 32kB generated.
+--
+-- @reseed g ent@ will reseed both the component generators by
+-- breaking ent up into two parts determined by the genSeedLength of each generator.
+--
+-- @genBytes@ will generate the requested bytes with generator @a@ and reseed @a@
+-- using generator @b@ if there has been 32KB of generated data since the last reseed.
+-- Note a request for > 32KB of data will be filled in one request to generator @a@ before
+-- @a@ is reseeded by @b@.
+--
+-- @genBytesWithEntropy@ will push the entropy into generator @a@, leaving generator
+-- @b@ unchanged unless the count hits 32KB, in which case it is reseeds @a@ 
+-- (for a second time) using @b@ as in normal operation via @genBytes@.
 data GenAutoReseed a b = GenAutoReseed !a !b !Int !Int
 
 instance (CryptoRandomGen a, CryptoRandomGen b) => CryptoRandomGen (GenAutoReseed a b) where
@@ -158,6 +171,58 @@ instance (CryptoRandomGen a, CryptoRandomGen b) => CryptoRandomGen (GenXor a b) 
 		a' <- reseed a b1
 		b' <- reseed b b2
 		return (GenXor a' b')
+
+-- |@g :: GenBuffered a@ is a generator of type @a@ that attempts to
+-- maintain a buffer of random values size > 1MB and < 5MB at any time.
+--
+-- Because of the way in which the buffer is computed (at idle times) and
+-- information on the previous generator is lost, it basically is not possible
+-- to reseed this generator after a GenError.
+data GenBuffered g = GenBuffered (Either GenError (B.ByteString,g)) B.ByteString
+
+proxyToGenBuffered :: Proxy g -> Proxy (Either GenError (GenBuffered g))
+proxyToGenBuffered = const Proxy
+
+bufferMinSize = 2^20
+bufferMaxSize = 2^22
+
+instance (CryptoRandomGen g) => CryptoRandomGen (GenBuffered g) where
+	newGen bs = do
+		g <- newGen bs
+		(rs,g') <- genBytes g  bufferMinSize
+		let new = genBytes g' bufferMinSize
+		return (GenBuffered new rs)
+	genSeedLength =
+		let a = help res
+		    res = Tagged $ genSeedLength `for` a
+		in res
+	  where
+	  help :: Tagged (GenBuffered g) c -> g
+	  help = const undefined
+	genBytes gb@(GenBuffered g bs) req
+		| B.length bs < bufferMinSize =
+			case g of
+				Left err  -> Left err
+				Right g   -> Left (GenErrorOther "Buffering generator failed to buffer properly - unknown reason")
+		| req > B.length bs = Left RequestedTooManyBytes
+		| B.length bs - req < bufferMinSize =
+			case g of
+				Left err -> Left err -- We could satisfy _this_ request and fail after the buffer runs out, but why bother?
+				Right (rnd, gen) ->
+					let new = genBytes gen bufferMinSize
+					in (eval new) `par` (genBytes (GenBuffered new (B.append bs rnd)) req)
+		| otherwise = Right (B.take req bs, GenBuffered g (B.drop req bs))
+	genBytesWithEntropy g req ent = reseed g ent >>= \gen -> genBytes gen req
+	reseed (GenBuffered g bs) ent = do
+		(rs, g') <- g
+		g'' <- reseed g' ent
+		let new = genBytes g'' bufferMinSize
+		    bs' = B.take bufferMaxSize (B.append bs rs)
+		return (GenBuffered new bs')
+
+eval :: Either x (B.ByteString, g) -> Either x (B.ByteString, g)
+eval (Left x) = Left x
+eval (Right (g,bs)) = bs `seq` (g `seq` (Right (g, bs)))
 
 -- |zipWith xor + Pack
 -- As a result of rewrite rules, this should automatically be optimized (at compile time) 
