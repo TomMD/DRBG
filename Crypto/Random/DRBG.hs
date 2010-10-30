@@ -1,9 +1,29 @@
 {-# LANGUAGE EmptyDataDecls, FlexibleInstances, TypeSynonymInstances #-}
+{-|
+ Maintainer: Thomas.DuBuisson@gmail.com
+ Stability: beta
+ Portability: portable 
+
+This module is the convenience interface for the DRBG (NIST standardized
+number-theoretically secure random number generator).  Everything is setup
+for using the "crypto-api" 'CryptoRandomGen' type class.  For example,
+to seed a new generator with the system secure random ('System.Crypto.Random')
+and generate some bytes (stepping the generator along the way) one would do:
+
+@
+    gen <- newGenIO :: IO HmacDRBG
+    let Right (randomBytes, newGen) = genBytes gen 1024
+@
+ 
+ -}
+
 module Crypto.Random.DRBG
-	( HMAC, HASH
-	, GenXor(..)
-	, GenAutoReseed(..)
+	( HmacDRBG, HashDRBG
+	, GenXor
+	, GenAutoReseed
 	, GenBuffered
+	, GenSystemRandom
+	, getGenSystemRandom
 	, module Crypto.Random
 	) where
 
@@ -16,11 +36,14 @@ import Crypto.Hash.SHA384 (SHA384)
 import Crypto.Hash.SHA256 (SHA256)
 import Crypto.Hash.SHA224 (SHA224)
 import Crypto.Hash.SHA1 (SHA1)
+import System.Crypto.Random
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as L
 import Data.Tagged
 import Data.Bits (xor)
 import Control.Parallel (par)
+import Control.Monad (liftM)
+import System.IO.Unsafe (unsafeInterleaveIO)
 
 instance H.SeedLength SHA512 where
 	seedlen = Tagged 888
@@ -37,11 +60,11 @@ instance H.SeedLength SHA224 where
 instance H.SeedLength SHA1 where
 	seedlen = Tagged 440
 
--- |An alias for an HMAC generator using SHA512
-type HMAC = M.State SHA512
+-- |An alias for an HmacDRBG generator using SHA512.  This is the recommended generator.
+type HmacDRBG = M.State SHA512
 
--- |An Alias for a HASH generator using SHA512
-type HASH = H.State SHA512
+-- |An Alias for a HashDRBG generator using SHA512.
+type HashDRBG = H.State SHA512
 
 newGenAutoReseed :: (CryptoRandomGen a, CryptoRandomGen b) => B.ByteString -> Int -> Either GenError (GenAutoReseed a b)
 newGenAutoReseed bs rsInterval=
@@ -54,7 +77,7 @@ newGenAutoReseed bs rsInterval=
 		(Left e, _) -> Left e
 		(_, Left e) -> Left e
 
-instance CryptoRandomGen HMAC where
+instance CryptoRandomGen HmacDRBG where
 	newGen bs = Right $ M.instantiate bs B.empty B.empty
 	genSeedLength = Tagged (512 `div` 8)
 	genBytes g req =
@@ -69,7 +92,7 @@ instance CryptoRandomGen HMAC where
 			Just (r,s) -> Right (B.concat . L.toChunks $ r, s)
 	reseed g ent = Right $ M.reseed g ent B.empty
 
-instance CryptoRandomGen HASH where
+instance CryptoRandomGen HashDRBG where
 	newGen bs = Right $ H.instantiate bs B.empty B.empty
 	genSeedLength = Tagged $ 512 `div` 8
 	genBytes g req = 
@@ -107,6 +130,7 @@ helper2 = const undefined
 data GenAutoReseed a b = GenAutoReseed !a !b !Int !Int
 
 instance (CryptoRandomGen a, CryptoRandomGen b) => CryptoRandomGen (GenAutoReseed a b) where
+	{-# SPECIALIZE instance CryptoRandomGen (GenAutoReseed HmacDRBG HmacDRBG) #-}
 	newGen bs = newGenAutoReseed bs (2^15)
 	genSeedLength =
 		let a = helper1 res
@@ -145,6 +169,7 @@ helperXor2 :: Tagged (GenXor a b) c -> b
 helperXor2 = const undefined
 
 instance (CryptoRandomGen a, CryptoRandomGen b) => CryptoRandomGen (GenXor a b) where
+	{-# SPECIALIZE instance CryptoRandomGen (GenXor HmacDRBG HmacDRBG) #-}
 	newGen bs = do
 		let g1 = newGen b1
 		    g2 = newGen b2
@@ -178,7 +203,7 @@ instance (CryptoRandomGen a, CryptoRandomGen b) => CryptoRandomGen (GenXor a b) 
 -- Because of the way in which the buffer is computed (at idle times) and
 -- information on the previous generator is lost, it basically is not possible
 -- to reseed this generator after a GenError.
-data GenBuffered g = GenBuffered (Either GenError (B.ByteString,g)) B.ByteString
+data GenBuffered g = GenBuffered (Either GenError (B.ByteString, g)) {-# UNPACK #-} !B.ByteString
 
 proxyToGenBuffered :: Proxy g -> Proxy (Either GenError (GenBuffered g))
 proxyToGenBuffered = const Proxy
@@ -187,6 +212,7 @@ bufferMinSize = 2^20
 bufferMaxSize = 2^22
 
 instance (CryptoRandomGen g) => CryptoRandomGen (GenBuffered g) where
+	{-# SPECIALIZE instance CryptoRandomGen (GenBuffered HmacDRBG) #-}
 	newGen bs = do
 		g <- newGen bs
 		(rs,g') <- genBytes g  bufferMinSize
@@ -200,18 +226,21 @@ instance (CryptoRandomGen g) => CryptoRandomGen (GenBuffered g) where
 	  help :: Tagged (GenBuffered g) c -> g
 	  help = const undefined
 	genBytes gb@(GenBuffered g bs) req
+		| remSize >= bufferMinSize =  Right (B.take req bs, GenBuffered g (B.drop req bs))
 		| B.length bs < bufferMinSize =
 			case g of
 				Left err  -> Left err
 				Right g   -> Left (GenErrorOther "Buffering generator failed to buffer properly - unknown reason")
 		| req > B.length bs = Left RequestedTooManyBytes
-		| B.length bs - req < bufferMinSize =
+		| remSize < bufferMinSize =
 			case g of
 				Left err -> Left err -- We could satisfy _this_ request and fail after the buffer runs out, but why bother?
 				Right (rnd, gen) ->
 					let new = genBytes gen bufferMinSize
 					in (eval new) `par` (genBytes (GenBuffered new (B.append bs rnd)) req)
-		| otherwise = Right (B.take req bs, GenBuffered g (B.drop req bs))
+		| otherwise = Left $ GenErrorOther "Buffering generator hit an impossible case.  Please inform DRBG maintainer"
+	  where
+	  remSize = B.length bs - req
 	genBytesWithEntropy g req ent = reseed g ent >>= \gen -> genBytes gen req
 	reseed (GenBuffered g bs) ent = do
 		(rs, g') <- g
@@ -223,6 +252,39 @@ instance (CryptoRandomGen g) => CryptoRandomGen (GenBuffered g) where
 eval :: Either x (B.ByteString, g) -> Either x (B.ByteString, g)
 eval (Left x) = Left x
 eval (Right (g,bs)) = bs `seq` (g `seq` (Right (g, bs)))
+
+-- |Not that it belongs here, or that it is technically correct as an instance of 'CryptoRandomGen', but simply because
+-- it's a reasonable engineering choice here is a 'GenSystemRandom' that streams the system randoms. Take note:
+-- 
+--  * It uses the default definition of 'genByteWithEntropy'
+--
+--  * 'newGen' will always fail!  DO NOT USE 'newGenIO' for this generator!
+--
+--  * 'reseed' will always fail!
+--
+--  * the handle to the system random is never closed
+data GenSystemRandom = GenSysRandom L.ByteString
+
+getGenSystemRandom :: IO GenSystemRandom
+getGenSystemRandom = do
+	ch <- openHandle
+	let getBS = unsafeInterleaveIO $ do
+		bs <- hGetEntropy ch ((2^15) - 16)
+		more <- getBS
+		return (bs:more)
+	liftM (GenSysRandom . L.fromChunks) getBS
+
+instance CryptoRandomGen GenSystemRandom where
+	newGen _ = Left $ GenErrorOther "SystemRandomGen isn't a semantically correct generator.  Tell your developer to use 'Crypto.Random.DRBG.getGenSystemRandom' instead of 'Crypto.Random.newGen'"
+	genSeedLength = Tagged 0
+	genBytes (GenSysRandom bs) req =
+		let reqI = fromIntegral req
+		    rnd = L.take reqI bs
+		    rest = L.drop reqI bs
+		in if L.length rnd == reqI
+			then Right (B.concat $ L.toChunks rnd, GenSysRandom rest)
+			else Left $ GenErrorOther "Error obtaining enough bytes from system random for given request"
+	reseed _ _ = Left $ GenErrorOther "SystemRandomGen isn't a semantically correct generator. Don't use 'WithEntropy'."
 
 -- |zipWith xor + Pack
 -- As a result of rewrite rules, this should automatically be optimized (at compile time) 
