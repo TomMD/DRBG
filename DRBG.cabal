@@ -21,7 +21,9 @@ flag test
 
 
 Library
-  Build-Depends: base >= 4.0 && < 4.4, cereal >= 0.2 && <= 0.4 , bytestring, prettyclass, binary, tagged, crypto-api >= 0.1.0.0, cryptohash >= 0.6, parallel
+  Build-Depends: base >= 4.0 && < 4.4, cereal >= 0.2 && <= 0.4,
+                 bytestring, prettyclass, binary, tagged,
+                 crypto-api >= 0.2, cryptohash >= 0.6, parallel
   ghc-options: -O2
   hs-source-dirs:
   exposed-modules: Crypto.Random.DRBG.Hash, Crypto.Random.DRBG.HMAC, Crypto.Random.DRBG, Crypto.Random.DRBG.Types
