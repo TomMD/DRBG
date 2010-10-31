@@ -43,6 +43,7 @@ import Data.Tagged
 import Data.Bits (xor)
 import Control.Parallel (par)
 import Control.Monad (liftM)
+import Control.Monad.Error () -- Either instance
 import System.IO.Unsafe (unsafeInterleaveIO)
 
 instance H.SeedLength SHA512 where
