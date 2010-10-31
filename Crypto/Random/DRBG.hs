@@ -80,32 +80,32 @@ newGenAutoReseed bs rsInterval=
 instance CryptoRandomGen HmacDRBG where
 	newGen bs = Right $ M.instantiate bs B.empty B.empty
 	genSeedLength = Tagged (512 `div` 8)
-	genBytes g req =
+	genBytes req g =
 		let res = M.generate g (req * 8) B.empty
 		in case res of
 			Nothing -> Left NeedReseed
 			Just (r,s) -> Right (B.concat . L.toChunks $ r, s)
-	genBytesWithEntropy g req ai =
+	genBytesWithEntropy req ai g =
 		let res = M.generate g (req * 8) ai
 		in case res of
 			Nothing -> Left NeedReseed
 			Just (r,s) -> Right (B.concat . L.toChunks $ r, s)
-	reseed g ent = Right $ M.reseed g ent B.empty
+	reseed ent g = Right $ M.reseed g ent B.empty
 
 instance CryptoRandomGen HashDRBG where
 	newGen bs = Right $ H.instantiate bs B.empty B.empty
 	genSeedLength = Tagged $ 512 `div` 8
-	genBytes g req = 
+	genBytes req g = 
 		let res = H.generate g (req * 8) B.empty
 		in case res of
 			Nothing -> Left NeedReseed
 			Just (r,s) -> Right (B.concat . L.toChunks $ r, s)
-	genBytesWithEntropy g req ai =
+	genBytesWithEntropy req ai g =
 		let res = H.generate g (req * 8) ai
 		in case res of
 			Nothing -> Left NeedReseed
 			Just (r,s) -> Right (B.concat . L.toChunks $ r, s)
-	reseed g ent = Right $ H.reseed g ent B.empty
+	reseed ent g = Right $ H.reseed g ent B.empty
 
 helper1 :: Tagged (GenAutoReseed a b) Int -> a
 helper1 = const undefined
@@ -137,26 +137,26 @@ instance (CryptoRandomGen a, CryptoRandomGen b) => CryptoRandomGen (GenAutoResee
 		    b = helper2 res
 		    res = Tagged $ genSeedLength `for` a + genSeedLength `for` b
 		in res
-	genBytes (GenAutoReseed a b rs cnt) req = do
-		(res, aNew) <- genBytes a req
+	genBytes req (GenAutoReseed a b rs cnt) = do
+		(res, aNew) <- genBytes req a
 		gNew <- if (cnt + req) > rs
-			  then do (ent,b') <- genBytes b (genSeedLength `for` a)
-				  a'  <- reseed aNew ent
+			  then do (ent,b') <- genBytes (genSeedLength `for` a) b
+				  a'  <- reseed ent aNew
 				  return (GenAutoReseed a' b' rs 0)
 			  else return $ GenAutoReseed aNew b rs (cnt + req)
 		return (res, gNew)
-	genBytesWithEntropy (GenAutoReseed a b rs cnt) req entropy = do
-		(res, aNew) <- genBytesWithEntropy a req entropy
+	genBytesWithEntropy req entropy (GenAutoReseed a b rs cnt) = do
+		(res, aNew) <- genBytesWithEntropy req entropy a
 		gNew <- if (cnt + req) > rs
-			  then do (ent,b') <- genBytes b (genSeedLength `for` a)
-				  a'  <- reseed aNew ent
+			  then do (ent,b') <- genBytes (genSeedLength `for` a) b
+				  a'  <- reseed ent aNew
 				  return (GenAutoReseed a' b' rs 0)
 			  else return $ GenAutoReseed aNew b rs (cnt + req)
 		return (res, gNew)
-	reseed (GenAutoReseed a b rs _) ent = do
+	reseed ent (GenAutoReseed a b rs _) = do
 		let (b1,b2) = B.splitAt (genSeedLength `for` a) ent
-		a' <- reseed a b1
-		b' <- reseed b b2
+		a' <- reseed b1 a
+		b' <- reseed b2 b
 		return $ GenAutoReseed a' b' rs 0
 
 -- |@g :: GenXor a b@ generates bytes with sub-generators a and b 
@@ -183,18 +183,18 @@ instance (CryptoRandomGen a, CryptoRandomGen b) => CryptoRandomGen (GenXor a b) 
 		    b = helperXor2 res
 		    res = Tagged $ (genSeedLength `for` a) + (genSeedLength `for` b)
 		in res
-	genBytes (GenXor a b) req = do
-		(r1, a') <- genBytes a req
-		(r2, b') <- genBytes b req
+	genBytes req (GenXor a b) = do
+		(r1, a') <- genBytes req a
+		(r2, b') <- genBytes req b
 		return (zwp' r1 r2, GenXor a' b')
-	genBytesWithEntropy (GenXor a b) req ent = do
-		(r1, a') <- genBytesWithEntropy a req ent
-		(r2, b') <- genBytesWithEntropy b req ent
+	genBytesWithEntropy req ent (GenXor a b) = do
+		(r1, a') <- genBytesWithEntropy req ent a
+		(r2, b') <- genBytesWithEntropy req ent b
 		return (zwp' r1 r2, GenXor a' b')
-	reseed (GenXor a b) ent = do
+	reseed ent (GenXor a b) = do
 		let (b1, b2) = B.splitAt (genSeedLength `for` a) ent
-		a' <- reseed a b1
-		b' <- reseed b b2
+		a' <- reseed b1 a
+		b' <- reseed b2 b
 		return (GenXor a' b')
 
 -- |@g :: GenBuffered a@ is a generator of type @a@ that attempts to
@@ -215,8 +215,8 @@ instance (CryptoRandomGen g) => CryptoRandomGen (GenBuffered g) where
 	{-# SPECIALIZE instance CryptoRandomGen (GenBuffered HmacDRBG) #-}
 	newGen bs = do
 		g <- newGen bs
-		(rs,g') <- genBytes g  bufferMinSize
-		let new = genBytes g' bufferMinSize
+		(rs,g') <- genBytes bufferMinSize g
+		let new = genBytes bufferMinSize g'
 		return (GenBuffered new rs)
 	genSeedLength =
 		let a = help res
@@ -225,7 +225,7 @@ instance (CryptoRandomGen g) => CryptoRandomGen (GenBuffered g) where
 	  where
 	  help :: Tagged (GenBuffered g) c -> g
 	  help = const undefined
-	genBytes gb@(GenBuffered g bs) req
+	genBytes req gb@(GenBuffered g bs)
 		| remSize >= bufferMinSize =  Right (B.take req bs, GenBuffered g (B.drop req bs))
 		| B.length bs < bufferMinSize =
 			case g of
@@ -236,16 +236,16 @@ instance (CryptoRandomGen g) => CryptoRandomGen (GenBuffered g) where
 			case g of
 				Left err -> Left err -- We could satisfy _this_ request and fail after the buffer runs out, but why bother?
 				Right (rnd, gen) ->
-					let new = genBytes gen bufferMinSize
-					in (eval new) `par` (genBytes (GenBuffered new (B.append bs rnd)) req)
+					let new = genBytes bufferMinSize gen
+					in (eval new) `par` (genBytes req (GenBuffered new (B.append bs rnd)))
 		| otherwise = Left $ GenErrorOther "Buffering generator hit an impossible case.  Please inform DRBG maintainer"
 	  where
 	  remSize = B.length bs - req
-	genBytesWithEntropy g req ent = reseed g ent >>= \gen -> genBytes gen req
-	reseed (GenBuffered g bs) ent = do
+	genBytesWithEntropy req ent g = reseed ent g >>= \gen -> genBytes req gen
+	reseed ent (GenBuffered g bs) = do
 		(rs, g') <- g
-		g'' <- reseed g' ent
-		let new = genBytes g'' bufferMinSize
+		g'' <- reseed ent g'
+		let new = genBytes bufferMinSize g''
 		    bs' = B.take bufferMaxSize (B.append bs rs)
 		return (GenBuffered new bs')
 
@@ -277,7 +277,7 @@ getGenSystemRandom = do
 instance CryptoRandomGen GenSystemRandom where
 	newGen _ = Left $ GenErrorOther "SystemRandomGen isn't a semantically correct generator.  Tell your developer to use 'Crypto.Random.DRBG.getGenSystemRandom' instead of 'Crypto.Random.newGen'"
 	genSeedLength = Tagged 0
-	genBytes (GenSysRandom bs) req =
+	genBytes req (GenSysRandom bs) =
 		let reqI = fromIntegral req
 		    rnd = L.take reqI bs
 		    rest = L.drop reqI bs
