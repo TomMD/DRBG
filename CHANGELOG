@@ -1,0 +1,5 @@
+New in 0.1.1
+
+* Add HashDRBGWith and HmacDRBGWith
+* Allow reseeding of AutoReseed when the second generator to be SystemRandomGen (zero byte reseed of 2nd generator)
+* Allow reseeding GenBuffered after an error by tracking the error-inducing generator (and not just the error)
