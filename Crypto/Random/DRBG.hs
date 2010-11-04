@@ -182,10 +182,14 @@ instance (CryptoRandomGen a, CryptoRandomGen b) => CryptoRandomGen (GenAutoResee
 				  return (GenAutoReseed a' b' rs 0)
 			  else return $ GenAutoReseed aNew b rs (cnt + req)
 		return (res, gNew)
-	reseed ent (GenAutoReseed a b rs _) = do
-		let (b1,b2) = B.splitAt (genSeedLength `for` a) ent
-		a' <- reseed b1 a
-		b' <- reseed b2 b
+	reseed ent gen@(GenAutoReseed a b rs _) 
+	  | genSeedLength `for` gen > B.length ent = Left NotEnoughEntropy
+	  | otherwise = do
+		let (e1,e2) = B.splitAt (genSeedLength `for` a) ent
+		a' <- reseed e1 a
+		b' <- if B.length e2 /= 0
+			then reseed e2 b
+			else return b
 		return $ GenAutoReseed a' b' rs 0
 
 -- |@g :: GenXor a b@ generates bytes with sub-generators a and b 
