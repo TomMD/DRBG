@@ -11,14 +11,31 @@ to seed a new generator with the system secure random ('System.Crypto.Random')
 and generate some bytes (stepping the generator along the way) one would do:
 
 @
-    gen <- newGenIO :: IO HmacDRBG
-    let Right (randomBytes, newGen) = genBytes gen 1024
+    gen <- newGenIO :: IO HashDRBG
+    let Right (randomBytes, newGen) = genBytes 1024 gen
 @
+
+Selecting the underlying hash algorithm is supporting using *DRBGWith types:
+
+@
+    gen <- newGenIO :: IO (HmacDRBGWith SHA224)
+@
+
+Composition of generators is supported using two trivial compositions, 'GenXor'
+and 'GenAutoReseed'.  Additional compositions can be built by instanciating
+a 'CryptoRandomGen' as desired.
+
+@
+    sysGen <- getGenSystemRandom
+    gen <- newGenIO :: IO (GenBuffered (GenAutoReseed (GenXor AesCntDRBG (HashDRBGWith SHA384)) HmacDRBG))
+@
+
  
  -}
 
 module Crypto.Random.DRBG
 	( HmacDRBG, HashDRBG
+	, HmacDRBGWith, HashDRBGWith
 	, GenXor
 	, GenAutoReseed
 	, GenBuffered
@@ -61,10 +78,18 @@ instance H.SeedLength SHA224 where
 instance H.SeedLength SHA1 where
 	seedlen = Tagged 440
 
--- |An alias for an HmacDRBG generator using SHA512.  This is the recommended generator.
+-- |The HMAC DRBG state (of kind * -> *) allowing selection
+-- of the underlying hash algorithm (SHA1, SHA224 ... SHA512)
+type HmacDRBGWith = M.State
+
+-- |The Hash DRBG state (of kind * -> *) allowing selection
+-- of the underlying hash algorithm.
+type HashDRBGWith = H.State
+
+-- |An alias for an HMAC DRBG generator using SHA512.
 type HmacDRBG = M.State SHA512
 
--- |An Alias for a HashDRBG generator using SHA512.
+-- |An Alias for a Hash DRBG generator using SHA512.
 type HashDRBG = H.State SHA512
 
 newGenAutoReseed :: (CryptoRandomGen a, CryptoRandomGen b) => B.ByteString -> Int -> Either GenError (GenAutoReseed a b)
