@@ -7,4 +7,4 @@ type Entropy = B.ByteString
 type PersonalizationString = B.ByteString
 type Nonce = B.ByteString
 type AdditionalInput = B.ByteString
-type RandomBits = L.ByteString
+type RandomBits = B.ByteString

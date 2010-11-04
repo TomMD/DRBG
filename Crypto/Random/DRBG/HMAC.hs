@@ -8,12 +8,13 @@ module Crypto.Random.DRBG.HMAC
 
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as L
-import Data.Serialize (encode)
+import Data.Serialize (encode, Serialize(..))
+import Data.Serialize.Put
+import Data.Serialize.Builder (toByteString)
 import Crypto.Classes
 import Crypto.HMAC
 import Crypto.Types
 import Crypto.Random.DRBG.Types
-import qualified Data.Binary as Bin
 
 type Key = B.ByteString
 type Value = B.ByteString
@@ -62,23 +63,28 @@ generate :: (Hash c d) => State d -> BitLength -> AdditionalInput -> Maybe (Rand
 generate st req additionalInput =
 	if(counter st > reseedInterval)
 		then Nothing
-		else Just (L.take (fromIntegral reqBytes) randBitsFinal, stFinal { counter = 1 + counter st})
+		else Just (randBitsFinal, stFinal { counter = 1 + counter st})
   where
   d = hashAlg st undefined
   st' = if B.length additionalInput == 0
 		then st
 		else update st (fc additionalInput)
-  reqBytes = req `div` 8 + (if req `rem` 8 ==0 then 0 else 1)
-  iterations = reqBytes `div` outlen + (if reqBytes `rem` outlen /= 0 then 1 else 0)
+  reqBytes = (req+7) `div` 8
+  iterations = (reqBytes + (outlen - 1)) `div` outlen
+
+  -- getV is the main cost.  HMACing and storing 'iterations' bytestrings at
+  -- ~64 bytes each is a real waste.  Some pre-allocation and unsafe functions
+  -- exported from Crypto.HMAC could cut this down, but it really isn't worth
+  -- giving CPR to such a bad idea as using ByteString for crypto computations
   getV :: Value -> Int -> (Value, [B.ByteString])
   getV !u 0 = (u, [])
   getV !u i = 
 	let !vNew = hmac' (MacKey kFinal) u `asTypeOf` d
 	    !encV = encode vNew
 	    (uFinal, rest) = getV encV (i - 1)
-	in (uFinal, encV : rest)
+	in (uFinal, encV:rest)
   (vFinal, randBitsList) = getV (value st') iterations
-  randBitsFinal = L.take (fromIntegral reqBytes) $ L.fromChunks randBitsList
+  randBitsFinal = B.take reqBytes $ B.concat randBitsList
   kFinal = key st'
   stFinal = update (st' { key = kFinal, value = vFinal}) (fc additionalInput)
   outlen = outputLength .::. d `div` 8

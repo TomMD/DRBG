@@ -15,7 +15,6 @@ import Crypto.Random.DRBG.Types
 import Crypto.Random.DRBG.HashDF
 import Crypto.Classes
 import Data.Serialize (encode)
-import qualified Data.Binary as Bin
 import Data.Bits (shiftR, shiftL)
 import Data.Tagged
 
@@ -77,7 +76,7 @@ generate st req additionalInput =
 
 -- 10.1.1.4, pg 39
 hashGen :: (Hash c d, SeedLength d) => d -> BitLen -> B.ByteString -> RandomBits
-hashGen d r val = L.take (fromIntegral reqBytes) . L.fromChunks $ getW val m
+hashGen d r val = B.take reqBytes . B.concat $ getW val m
   where
   reqBytes = (r + 7) `div` 8
   m = (r + (outlen - 1)) `div` outlen

@@ -110,12 +110,12 @@ instance CryptoRandomGen HmacDRBG where
 		let res = M.generate g (req * 8) B.empty
 		in case res of
 			Nothing -> Left NeedReseed
-			Just (r,s) -> Right (B.concat . L.toChunks $ r, s)
+			Just (r,s) -> Right (r, s)
 	genBytesWithEntropy req ai g =
 		let res = M.generate g (req * 8) ai
 		in case res of
 			Nothing -> Left NeedReseed
-			Just (r,s) -> Right (B.concat . L.toChunks $ r, s)
+			Just (r,s) -> Right (r, s)
 	reseed ent g = Right $ M.reseed g ent B.empty
 
 instance CryptoRandomGen HashDRBG where
@@ -125,12 +125,12 @@ instance CryptoRandomGen HashDRBG where
 		let res = H.generate g (req * 8) B.empty
 		in case res of
 			Nothing -> Left NeedReseed
-			Just (r,s) -> Right (B.concat . L.toChunks $ r, s)
+			Just (r,s) -> Right (r, s)
 	genBytesWithEntropy req ai g =
 		let res = H.generate g (req * 8) ai
 		in case res of
 			Nothing -> Left NeedReseed
-			Just (r,s) -> Right (B.concat . L.toChunks $ r, s)
+			Just (r,s) -> Right (r, s)
 	reseed ent g = Right $ H.reseed g ent B.empty
 
 helper1 :: Tagged (GenAutoReseed a b) Int -> a
@@ -157,6 +157,9 @@ data GenAutoReseed a b = GenAutoReseed !a !b !Int !Int
 
 instance (CryptoRandomGen a, CryptoRandomGen b) => CryptoRandomGen (GenAutoReseed a b) where
 	{-# SPECIALIZE instance CryptoRandomGen (GenAutoReseed HmacDRBG HmacDRBG) #-}
+	{-# SPECIALIZE instance CryptoRandomGen (GenAutoReseed HashDRBG HashDRBG) #-}
+	{-# SPECIALIZE instance CryptoRandomGen (GenAutoReseed HashDRBG HmacDRBG) #-}
+	{-# SPECIALIZE instance CryptoRandomGen (GenAutoReseed HmacDRBG HashDRBG) #-}
 	newGen bs = newGenAutoReseed bs (2^15)
 	genSeedLength =
 		let a = helper1 res
@@ -196,6 +199,9 @@ helperXor2 = const undefined
 
 instance (CryptoRandomGen a, CryptoRandomGen b) => CryptoRandomGen (GenXor a b) where
 	{-# SPECIALIZE instance CryptoRandomGen (GenXor HmacDRBG HmacDRBG) #-}
+	{-# SPECIALIZE instance CryptoRandomGen (GenXor HashDRBG HmacDRBG) #-}
+	{-# SPECIALIZE instance CryptoRandomGen (GenXor HmacDRBG HashDRBG) #-}
+	{-# SPECIALIZE instance CryptoRandomGen (GenXor HashDRBG HashDRBG) #-}
 	newGen bs = do
 		let g1 = newGen b1
 		    g2 = newGen b2
@@ -239,6 +245,7 @@ bufferMaxSize = 2^22
 
 instance (CryptoRandomGen g) => CryptoRandomGen (GenBuffered g) where
 	{-# SPECIALIZE instance CryptoRandomGen (GenBuffered HmacDRBG) #-}
+	{-# SPECIALIZE instance CryptoRandomGen (GenBuffered HashDRBG) #-}
 	newGen bs = do
 		g <- newGen bs
 		(rs,g') <- genBytes bufferMinSize g
