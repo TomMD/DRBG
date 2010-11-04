@@ -235,11 +235,7 @@ instance (CryptoRandomGen a, CryptoRandomGen b) => CryptoRandomGen (GenXor a b) 
 
 -- |@g :: GenBuffered a@ is a generator of type @a@ that attempts to
 -- maintain a buffer of random values size > 1MB and < 5MB at any time.
---
--- Because of the way in which the buffer is computed (at idle times) and
--- information on the previous generator is lost, it basically is not possible
--- to reseed this generator after a GenError.
-data GenBuffered g = GenBuffered (Either GenError (B.ByteString, g)) {-# UNPACK #-} !B.ByteString
+data GenBuffered g = GenBuffered (Either (GenError, g) (B.ByteString, g)) {-# UNPACK #-} !B.ByteString
 
 proxyToGenBuffered :: Proxy g -> Proxy (Either GenError (GenBuffered g))
 proxyToGenBuffered = const Proxy
@@ -253,7 +249,7 @@ instance (CryptoRandomGen g) => CryptoRandomGen (GenBuffered g) where
 	newGen bs = do
 		g <- newGen bs
 		(rs,g') <- genBytes bufferMinSize g
-		let new = genBytes bufferMinSize g'
+		let new = wrapErr (genBytes bufferMinSize g') g'
 		return (GenBuffered new rs)
 	genSeedLength =
 		let a = help res
@@ -266,26 +262,34 @@ instance (CryptoRandomGen g) => CryptoRandomGen (GenBuffered g) where
 		| remSize >= bufferMinSize =  Right (B.take req bs, GenBuffered g (B.drop req bs))
 		| B.length bs < bufferMinSize =
 			case g of
-				Left err  -> Left err
+				Left (err,_)  -> Left err
 				Right g   -> Left (GenErrorOther "Buffering generator failed to buffer properly - unknown reason")
 		| req > B.length bs = Left RequestedTooManyBytes
 		| remSize < bufferMinSize =
 			case g of
-				Left err -> Left err -- We could satisfy _this_ request and fail after the buffer runs out, but why bother?
+				Left (err,_) -> Left err
 				Right (rnd, gen) ->
-					let new = genBytes bufferMinSize gen
+					let new = wrapErr (genBytes bufferMinSize gen) gen
 					in (eval new) `par` (genBytes req (GenBuffered new (B.append bs rnd)))
 		| otherwise = Left $ GenErrorOther "Buffering generator hit an impossible case.  Please inform DRBG maintainer"
 	  where
 	  remSize = B.length bs - req
 	genBytesWithEntropy req ent g = reseed ent g >>= \gen -> genBytes req gen
 	reseed ent (GenBuffered g bs) = do
-		(rs, g') <- g
+		let (rs, g') =
+		      case g of
+			Left (_,g') -> (B.empty, g')
+			Right (rs, g') -> (rs, g')
 		g'' <- reseed ent g'
-		let new = genBytes bufferMinSize g''
+		let new = wrapErr (genBytes bufferMinSize g'') g''
 		    bs' = B.take bufferMaxSize (B.append bs rs)
 		return (GenBuffered new bs')
 
+wrapErr :: Either x y -> g -> Either (x,g) y
+wrapErr (Left x) g = Left (x,g)
+wrapErr (Right r) _ = Right r
+
+-- |Force evaluation for use by GenBuffered.
 eval :: Either x (B.ByteString, g) -> Either x (B.ByteString, g)
 eval (Left x) = Left x
 eval (Right (g,bs)) = bs `seq` (g `seq` (Right (g, bs)))
