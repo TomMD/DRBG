@@ -104,7 +104,11 @@ newGenAutoReseed bs rsInterval=
 		(_, Left e) -> Left e
 
 instance CryptoRandomGen HmacDRBG where
-	newGen bs = Right $ M.instantiate bs B.empty B.empty
+	newGen bs =
+		let res = M.instantiate bs B.empty B.empty
+		in if B.length bs < genSeedLength `for` res
+			then Left NotEnoughEntropy
+			else Right res
 	genSeedLength = Tagged (512 `div` 8)
 	genBytes req g =
 		let res = M.generate g (req * 8) B.empty
@@ -116,10 +120,18 @@ instance CryptoRandomGen HmacDRBG where
 		in case res of
 			Nothing -> Left NeedReseed
 			Just (r,s) -> Right (r, s)
-	reseed ent g = Right $ M.reseed g ent B.empty
+	reseed ent g =
+		let res = M.reseed g ent B.empty
+		in if B.length ent < genSeedLength `for` res
+			then Left NotEnoughEntropy
+			else Right res
 
 instance CryptoRandomGen HashDRBG where
-	newGen bs = Right $ H.instantiate bs B.empty B.empty
+	newGen bs =
+		let res = H.instantiate bs B.empty B.empty
+		in if B.length bs < genSeedLength `for` res
+			then Left NotEnoughEntropy
+			else Right res
 	genSeedLength = Tagged $ 512 `div` 8
 	genBytes req g = 
 		let res = H.generate g (req * 8) B.empty
@@ -131,7 +143,11 @@ instance CryptoRandomGen HashDRBG where
 		in case res of
 			Nothing -> Left NeedReseed
 			Just (r,s) -> Right (r, s)
-	reseed ent g = Right $ H.reseed g ent B.empty
+	reseed ent g =
+		let res = H.reseed g ent B.empty
+		in if B.length ent < genSeedLength `for` res
+			then Left NotEnoughEntropy
+			else Right res
 
 helper1 :: Tagged (GenAutoReseed a b) Int -> a
 helper1 = const undefined
