@@ -58,7 +58,7 @@ import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as L
 import Data.Tagged
 import Data.Bits (xor)
-import Control.Parallel (par)
+import Control.Parallel
 import Control.Monad (liftM)
 import Control.Monad.Error () -- Either instance
 import System.IO.Unsafe (unsafeInterleaveIO)
@@ -234,7 +234,7 @@ instance (CryptoRandomGen a, CryptoRandomGen b) => CryptoRandomGen (GenXor a b) 
 		return (GenXor a' b')
 
 -- |@g :: GenBuffered a@ is a generator of type @a@ that attempts to
--- maintain a buffer of random values size > 1MB and < 5MB at any time.
+-- maintain a buffer of random values size >= 1MB and <= 5MB at any time.
 data GenBuffered g = GenBuffered (Either (GenError, g) (B.ByteString, g)) {-# UNPACK #-} !B.ByteString
 
 proxyToGenBuffered :: Proxy g -> Proxy (Either GenError (GenBuffered g))
@@ -317,7 +317,7 @@ getGenSystemRandom = do
 	liftM (GenSysRandom . L.fromChunks) getBS
 
 instance CryptoRandomGen GenSystemRandom where
-	newGen _ = Left $ GenErrorOther "SystemRandomGen isn't a semantically correct generator.  Tell your developer to use 'Crypto.Random.DRBG.getGenSystemRandom' instead of 'Crypto.Random.newGen'"
+	newGen _ = Left $ GenErrorOther "SystemRandomGen isn't a semanticly correct generator.  Tell your developer to use 'Crypto.Random.DRBG.getGenSystemRandom' instead of 'Crypto.Random.newGen'"
 	genSeedLength = Tagged 0
 	genBytes req (GenSysRandom bs) =
 		let reqI = fromIntegral req

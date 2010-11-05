@@ -11,14 +11,13 @@ stability:	stable
 build-type:	Simple
 cabal-version:	>= 1.6
 tested-with:	GHC == 6.10.1
-Data-Files: Test/HMAC_DRBG.txt Test/Hash_DRBG.txt Test/CTR_DRBG.txt Test/Dual_EC_DRBG.txt
+Data-Files: Test/HMAC_DRBG.txt Test/Hash_DRBG.txt Test/CTR_DRBG.txt Test/Dual_EC_DRBG.txt CHANGELOG
 extra-source-files:
   Test/HMAC_DRBG.txt Test/Hash_DRBG.txt Test/CTR_DRBG.txt Test/Dual_EC_DRBG.txt
 
 flag test
   description: Build a program to test the DRBG library
   default: False
-
 
 Library
   Build-Depends: base >= 4.0 && < 4.4, cereal >= 0.2 && <= 0.4,
