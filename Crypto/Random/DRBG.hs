@@ -250,7 +250,7 @@ instance (CryptoRandomGen g) => CryptoRandomGen (GenBuffered g) where
 		g <- newGen bs
 		(rs,g') <- genBytes bufferMinSize g
 		let new = wrapErr (genBytes bufferMinSize g') g'
-		return (GenBuffered new rs)
+		(let !_ = rs in ()) `par` return (GenBuffered new rs)
 	genSeedLength =
 		let a = help res
 		    res = Tagged $ genSeedLength `for` a
@@ -270,7 +270,8 @@ instance (CryptoRandomGen g) => CryptoRandomGen (GenBuffered g) where
 				Left (err,_) -> Left err
 				Right (rnd, gen) ->
 					let new = wrapErr (genBytes bufferMinSize gen) gen
-					in (eval new) `par` (genBytes req (GenBuffered new (B.append bs rnd)))
+					    (rs,rem) = B.splitAt req bs
+					in (eval new) `par` Right (rs, GenBuffered new (B.append rem rnd))
 		| otherwise = Left $ GenErrorOther "Buffering generator hit an impossible case.  Please inform DRBG maintainer"
 	  where
 	  remSize = B.length bs - req
