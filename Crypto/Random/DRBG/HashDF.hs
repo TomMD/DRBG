@@ -6,8 +6,7 @@ import Crypto.Classes
 import Data.Serialize (encode)
 import Data.Serialize.Put (runPut, putWord32be)
 import Data.Word (Word8, Word32)
-
-type BitLen = Int
+import Crypto.Random.DRBG.Types
 
 -- Section 10.4.1, pg 65
 hash_df :: Hash c d => (L.ByteString -> d) -> B.ByteString -> BitLen -> B.ByteString

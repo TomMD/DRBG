@@ -1,4 +1,4 @@
-{-# LANGUAGE EmptyDataDecls, FlexibleInstances, TypeSynonymInstances #-}
+{-# LANGUAGE EmptyDataDecls, FlexibleInstances, TypeSynonymInstances, BangPatterns #-}
 {-|
  Maintainer: Thomas.DuBuisson@gmail.com
  Stability: beta
@@ -26,7 +26,6 @@ and 'GenAutoReseed'.  Additional compositions can be built by instanciating
 a 'CryptoRandomGen' as desired.
 
 @
-    sysGen <- getGenSystemRandom
     gen <- newGenIO :: IO (GenBuffered (GenAutoReseed (GenXor AesCntDRBG (HashDRBGWith SHA384)) HmacDRBG))
 @
 
@@ -39,8 +38,6 @@ module Crypto.Random.DRBG
 	, GenXor
 	, GenAutoReseed
 	, GenBuffered
-	, GenSystemRandom
-	, getGenSystemRandom
 	, module Crypto.Random
 	) where
 
@@ -251,22 +248,35 @@ instance (CryptoRandomGen a, CryptoRandomGen b) => CryptoRandomGen (GenXor a b) 
 
 -- |@g :: GenBuffered a@ is a generator of type @a@ that attempts to
 -- maintain a buffer of random values size >= 1MB and <= 5MB at any time.
-data GenBuffered g = GenBuffered (Either (GenError, g) (B.ByteString, g)) {-# UNPACK #-} !B.ByteString
+data GenBuffered g = GenBuffered Int Int (Either (GenError, g) (B.ByteString, g)) {-# UNPACK #-} !B.ByteString
 
 proxyToGenBuffered :: Proxy g -> Proxy (Either GenError (GenBuffered g))
 proxyToGenBuffered = const Proxy
 
-bufferMinSize = 2^20
-bufferMaxSize = 2^22
+bufferMinDef = 2^20
+bufferMaxDef = 2^22
+
+newGenBuffered :: (CryptoRandomGen g) => Int -> Int -> B.ByteString -> Either GenError (GenBuffered g)
+newGenBuffered min max bs = do
+        g <- newGen bs
+        (rs,g') <- genBytes min g
+        let new = wrapErr (genBytes min g') g'
+        (let !_ = rs in ()) `par` return (GenBuffered min max new rs)
+
+newGenBufferedIO :: CryptoRandomGen g => Int -> Int -> IO (GenBuffered g)
+newGenBufferedIO min max = do
+        g <- newGenIO
+        let !(Right !gBuf) = do
+                (rs,g') <- genBytes min g
+                let new = wrapErr (genBytes min g') g'
+                (let !_ = rs in ()) `par` return (GenBuffered min max new rs)
+        return gBuf
 
 instance (CryptoRandomGen g) => CryptoRandomGen (GenBuffered g) where
 	{-# SPECIALIZE instance CryptoRandomGen (GenBuffered HmacDRBG) #-}
 	{-# SPECIALIZE instance CryptoRandomGen (GenBuffered HashDRBG) #-}
-	newGen bs = do
-		g <- newGen bs
-		(rs,g') <- genBytes bufferMinSize g
-		let new = wrapErr (genBytes bufferMinSize g') g'
-		(let !_ = rs in ()) `par` return (GenBuffered new rs)
+        newGen = newGenBuffered bufferMinDef bufferMaxDef
+        newGenIO = newGenBufferedIO bufferMinDef bufferMaxDef
 	genSeedLength =
 		let a = help res
 		    res = Tagged $ genSeedLength `for` a
@@ -274,33 +284,35 @@ instance (CryptoRandomGen g) => CryptoRandomGen (GenBuffered g) where
 	  where
 	  help :: Tagged (GenBuffered g) c -> g
 	  help = const undefined
-	genBytes req gb@(GenBuffered g bs)
-		| remSize >= bufferMinSize =  Right (B.take req bs, GenBuffered g (B.drop req bs))
-		| B.length bs < bufferMinSize =
-			case g of
-				Left (err,_)  -> Left err
-				Right g   -> Left (GenErrorOther "Buffering generator failed to buffer properly - unknown reason")
-		| req > B.length bs = Left RequestedTooManyBytes
-		| remSize < bufferMinSize =
-			case g of
-				Left (err,_) -> Left err
-				Right (rnd, gen) ->
-					let new = wrapErr (genBytes bufferMinSize gen) gen
-					    (rs,rem) = B.splitAt req bs
-					in (eval new) `par` Right (rs, GenBuffered new (B.append rem rnd))
-		| otherwise = Left $ GenErrorOther "Buffering generator hit an impossible case.  Please inform DRBG maintainer"
-	  where
-	  remSize = B.length bs - req
-	genBytesWithEntropy req ent g = reseed ent g >>= \gen -> genBytes req gen
-	reseed ent (GenBuffered g bs) = do
-		let (rs, g') =
-		      case g of
-			Left (_,g') -> (B.empty, g')
-			Right (rs, g') -> (rs, g')
-		g'' <- reseed ent g'
-		let new = wrapErr (genBytes bufferMinSize g'') g''
-		    bs' = B.take bufferMaxSize (B.append bs rs)
-		return (GenBuffered new bs')
+        genBytes req gb@(GenBuffered min max g bs)
+                | remSize >= min =  Right (B.take req bs, GenBuffered min max g (B.drop req bs))
+                | B.length bs < min =
+                        case g of
+                                Left (err,_)  -> Left err
+                                Right g   -> Left (GenErrorOther "Buffering generator failed to buffer properly - unknown reason")
+                | req > B.length bs = Left RequestedTooManyBytes
+                | remSize < min =
+                        case g of
+                                Left (err,_) -> Left err
+                                Right (rnd, gen) ->
+                                        let new | B.length rnd > 0 = wrapErr (genBytes (max - (remSize + B.length rnd)) gen) gen
+                                                | otherwise = Right (B.empty,gen)
+                                            (rs,rem) = B.splitAt req bs
+                                        in (eval new) `par` Right (rs, GenBuffered min max new (B.append rem rnd))
+                | otherwise = Left $ GenErrorOther "Buffering generator hit an impossible case.  Please inform the Haskell crypto-api maintainer"
+          where
+          remSize = B.length bs - req
+        genBytesWithEntropy req ent g = reseed ent g >>= \gen -> genBytes req gen
+        reseed ent (GenBuffered min max g bs) = do
+                let (rs, g') =
+                      case g of
+                        Left (_,g') -> (B.empty, g')
+                        Right (rs, g') -> (rs, g')
+                g'' <- reseed ent g'
+                let new = wrapErr (genBytes (min-B.length bs') g'') g''
+                    bs' = B.take max (B.append bs rs)
+                return (GenBuffered min max new bs')
+
 
 wrapErr :: Either x y -> g -> Either (x,g) y
 wrapErr (Left x) g = Left (x,g)
@@ -310,39 +322,6 @@ wrapErr (Right r) _ = Right r
 eval :: Either x (B.ByteString, g) -> Either x (B.ByteString, g)
 eval (Left x) = Left x
 eval (Right (g,bs)) = bs `seq` (g `seq` (Right (g, bs)))
-
--- |Not that it belongs here, or that it is technically correct as an instance of 'CryptoRandomGen', but simply because
--- it's a reasonable engineering choice here is a 'GenSystemRandom' that streams the system randoms. Take note:
--- 
---  * It uses the default definition of 'genByteWithEntropy'
---
---  * 'newGen' will always fail!  DO NOT USE 'newGenIO' for this generator!
---
---  * 'reseed' will always fail!
---
---  * the handle to the system random is never closed
-data GenSystemRandom = GenSysRandom L.ByteString
-
-getGenSystemRandom :: IO GenSystemRandom
-getGenSystemRandom = do
-	ch <- openHandle
-	let getBS = unsafeInterleaveIO $ do
-		bs <- hGetEntropy ch ((2^15) - 16)
-		more <- getBS
-		return (bs:more)
-	liftM (GenSysRandom . L.fromChunks) getBS
-
-instance CryptoRandomGen GenSystemRandom where
-	newGen _ = Left $ GenErrorOther "SystemRandomGen isn't a semanticly correct generator.  Tell your developer to use 'Crypto.Random.DRBG.getGenSystemRandom' instead of 'Crypto.Random.newGen'"
-	genSeedLength = Tagged 0
-	genBytes req (GenSysRandom bs) =
-		let reqI = fromIntegral req
-		    rnd = L.take reqI bs
-		    rest = L.drop reqI bs
-		in if L.length rnd == reqI
-			then Right (B.concat $ L.toChunks rnd, GenSysRandom rest)
-			else Left $ GenErrorOther "Error obtaining enough bytes from system random for given request"
-	reseed _ _ = Left $ GenErrorOther "SystemRandomGen isn't a semantically correct generator. Don't use 'WithEntropy'."
 
 -- |zipWith xor + Pack
 -- As a result of rewrite rules, this should automatically be optimized (at compile time) 
