@@ -26,7 +26,7 @@ Library
   ghc-options: -O2
   hs-source-dirs:
   exposed-modules: Crypto.Random.DRBG.Hash, Crypto.Random.DRBG.HMAC, Crypto.Random.DRBG, Crypto.Random.DRBG.Types
-  other-modules: Crypto.Random.DRBG.HashDF
+  other-modules: Crypto.Random.DRBG.HashDF, Crypto.Random.DRBG.Util
 
 Executable drbg_test
   if !flag(test)
