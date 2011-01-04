@@ -1,5 +1,6 @@
 0.1.2
 * Verify the seed length is sufficient when instantiating or reseeding HmacDRBG and HashDRBG
+* Move GenSystemRandom out of DRBG (into crypto-api >= 0.3)
 
 New in 0.1.1
 
