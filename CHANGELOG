@@ -1,3 +1,7 @@
+0.1.3
+* Updated to work with tagged == 0.2.
+* Exported newGenAutoReseed{,IO} for those really really long running CRG's.
+
 0.1.2
 * Verify the seed length is sufficient when instantiating or reseeding HmacDRBG and HashDRBG
 * Move GenSystemRandom out of DRBG (into crypto-api >= 0.3)

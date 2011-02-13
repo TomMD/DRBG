@@ -36,7 +36,7 @@ module Crypto.Random.DRBG
 	( HmacDRBG, HashDRBG
 	, HmacDRBGWith, HashDRBGWith
 	, GenXor
-	, GenAutoReseed
+	, GenAutoReseed, newGenAutoReseed, newGenAutoReseedIO
 	, GenBuffered
 	, module Crypto.Random
 	) where
@@ -54,6 +54,7 @@ import System.Crypto.Random
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as L
 import Data.Tagged
+import Data.Proxy
 import Data.Bits (xor)
 import Control.Parallel
 import Control.Monad (liftM)
@@ -89,6 +90,21 @@ type HmacDRBG = M.State SHA512
 -- |An Alias for a Hash DRBG generator using SHA512.
 type HashDRBG = H.State SHA512
 
+-- |@newGenAutoReseed bs i@ creates a new 'GenAutoReseed' with a custom interval
+-- of @i@ bytes using the provided entropy in @bs@.
+--
+-- This is for extremely long running uses of 'CryptoRandomGen' instances
+-- that can't explicitly reseed as often as a single underlying generator
+-- would need (usually every 2^48 bytes).
+--
+-- For example:
+--
+-- @
+-- newGenAutoReseedIO (2^48) :: IO (Either GenError (GenAutoReseed HashDRBG HashDRBG))
+-- @
+-- 
+-- Will last for @2^48 * 2^48@ bytes of randomly generated data.  That's
+-- 2^56 terabytes of random values.
 newGenAutoReseed :: (CryptoRandomGen a, CryptoRandomGen b) => B.ByteString -> Int -> Either GenError (GenAutoReseed a b)
 newGenAutoReseed bs rsInterval=
 	let (b1,b2) = B.splitAt (genSeedLength `for` fromRight g1) bs
@@ -99,6 +115,27 @@ newGenAutoReseed bs rsInterval=
 		(Right a, Right b) -> Right $ GenAutoReseed a b rsInterval 0
 		(Left e, _) -> Left e
 		(_, Left e) -> Left e
+
+-- |@newGenAutoReseedIO i@ creates a new 'GenAutoReseed' with a custom
+-- interval of @i@ bytes, using the system random number generator as a seed.
+--
+-- See 'newGenAutoReseed'.
+newGenAutoReseedIO :: (CryptoRandomGen a, CryptoRandomGen b) =>
+                   Int -> IO (Either GenError (GenAutoReseed a b))
+newGenAutoReseedIO i   = do
+	let p = Proxy
+	    getG :: (CryptoRandomGen a, CryptoRandomGen b) => 
+                    Proxy (GenAutoReseed a b) -> IO (Either GenError (GenAutoReseed a b))
+	    getG p = liftM (\bs -> newGenAutoReseed bs i `asProxyTypeOf` rightProxy p)
+                           (getEntropy (seed p))
+	g <- getG p
+	return (g `asProxyTypeOf` p)
+
+seed :: CryptoRandomGen g => Proxy g -> Int
+seed x = proxy genSeedLength x
+
+rightProxy :: Proxy p -> Proxy (Either x p)
+rightProxy = reproxy
 
 instance CryptoRandomGen HmacDRBG where
 	newGen bs =
@@ -163,9 +200,15 @@ helper2 = const undefined
 -- Note a request for > 32KB of data will be filled in one request to generator @a@ before
 -- @a@ is reseeded by @b@.
 --
--- @genBytesWithEntropy@ will push the entropy into generator @a@, leaving generator
--- @b@ unchanged unless the count hits 32KB, in which case it is reseeds @a@ 
--- (for a second time) using @b@ as in normal operation via @genBytes@.
+-- @genBytesWithEntropy@ is lifted into the same call for generator @a@, but
+-- it will still reseed from generator @b@ if the limit is hit.
+--
+-- Reseed interval: If generator @a@ needs a @genSeedLength a = a'@ and generator B
+-- needs reseeded every @2^b@ bytes then a @GenAutoReseed a b@ will need reseeded every
+-- @2^15 * (2^b / a')@ bytes.  For the common values of @a' = 128@ and @2^b = 2^48@ this
+-- means reseeding every 2^56 bytes (an extra factor of 2^8 for every nesting of
+-- GenAutoReseed).  For the example numbers, this translates to about 200 years of
+-- continually generating random values at a rate of 10MB/s.
 data GenAutoReseed a b = GenAutoReseed !a !b !Int !Int
 
 instance (CryptoRandomGen a, CryptoRandomGen b) => CryptoRandomGen (GenAutoReseed a b) where
@@ -179,22 +222,38 @@ instance (CryptoRandomGen a, CryptoRandomGen b) => CryptoRandomGen (GenAutoResee
 		    b = helper2 res
 		    res = Tagged $ genSeedLength `for` a + genSeedLength `for` b
 		in res
-	genBytes req (GenAutoReseed a b rs cnt) = do
-		(res, aNew) <- genBytes req a
-		gNew <- if (cnt + req) > rs
-			  then do (ent,b') <- genBytes (genSeedLength `for` a) b
-				  a'  <- reseed ent aNew
-				  return (GenAutoReseed a' b' rs 0)
-			  else return $ GenAutoReseed aNew b rs (cnt + req)
-		return (res, gNew)
+	genBytes req (GenAutoReseed a b rs cnt) =
+		case genBytes req a of
+			Left NeedReseed -> do
+				(ent,b') <- genBytes (genSeedLength `for` a) b
+				a' <- reseed ent a
+				(res, aNew) <- genBytes req a'
+				return (res,GenAutoReseed aNew b' rs 0)
+			Left err -> Left err
+			Right (res,aNew) -> do
+			  gNew <- if (cnt + req) > rs
+					then do 
+					  (ent,b') <- genBytes (genSeedLength `for` a) b
+					  a'  <- reseed ent aNew
+					  return (GenAutoReseed a' b' rs 0)
+					else return $ GenAutoReseed aNew b rs (cnt + req)
+			  return (res, gNew)
 	genBytesWithEntropy req entropy (GenAutoReseed a b rs cnt) = do
-		(res, aNew) <- genBytesWithEntropy req entropy a
-		gNew <- if (cnt + req) > rs
-			  then do (ent,b') <- genBytes (genSeedLength `for` a) b
-				  a'  <- reseed ent aNew
-				  return (GenAutoReseed a' b' rs 0)
-			  else return $ GenAutoReseed aNew b rs (cnt + req)
-		return (res, gNew)
+		case genBytesWithEntropy req entropy a of
+			Left NeedReseed -> do
+				(ent,b') <- genBytes (genSeedLength `for` a) b
+				a' <- reseed ent a
+				(res, aNew) <- genBytesWithEntropy req entropy a'
+				return (res,GenAutoReseed aNew b' rs 0)
+			Left err -> Left err
+			Right (res,aNew) -> do
+			  gNew <- if (cnt + req) > rs
+					then do 
+					  (ent,b') <- genBytes (genSeedLength `for` a) b
+					  a'  <- reseed ent aNew
+					  return (GenAutoReseed a' b' rs 0)
+					else return $ GenAutoReseed aNew b rs (cnt + req)
+			  return (res, gNew)
 	reseed ent gen@(GenAutoReseed a b rs _) 
 	  | genSeedLength `for` gen > B.length ent = Left NotEnoughEntropy
 	  | otherwise = do
@@ -312,7 +371,6 @@ instance (CryptoRandomGen g) => CryptoRandomGen (GenBuffered g) where
                 let new = wrapErr (genBytes (min-B.length bs') g'') g''
                     bs' = B.take max (B.append bs rs)
                 return (GenBuffered min max new bs')
-
 
 wrapErr :: Either x y -> g -> Either (x,g) y
 wrapErr (Left x) g = Left (x,g)
