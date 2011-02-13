@@ -103,8 +103,8 @@ type HashDRBG = H.State SHA512
 -- newGenAutoReseedIO (2^48) :: IO (Either GenError (GenAutoReseed HashDRBG HashDRBG))
 -- @
 -- 
--- Will last for @2^48 * 2^48@ bytes of randomly generated data.  That's
--- 2^56 terabytes of random values.
+-- Will last for @2^48 * 2^41@ bytes of randomly generated data.  That's
+-- 2^49 terabytes of random values (128 byte reseeds every 2^48 bytes generated).
 newGenAutoReseed :: (CryptoRandomGen a, CryptoRandomGen b) => B.ByteString -> Int -> Either GenError (GenAutoReseed a b)
 newGenAutoReseed bs rsInterval=
 	let (b1,b2) = B.splitAt (genSeedLength `for` fromRight g1) bs
@@ -206,9 +206,8 @@ helper2 = const undefined
 -- Reseed interval: If generator @a@ needs a @genSeedLength a = a'@ and generator B
 -- needs reseeded every @2^b@ bytes then a @GenAutoReseed a b@ will need reseeded every
 -- @2^15 * (2^b / a')@ bytes.  For the common values of @a' = 128@ and @2^b = 2^48@ this
--- means reseeding every 2^56 bytes (an extra factor of 2^8 for every nesting of
--- GenAutoReseed).  For the example numbers, this translates to about 200 years of
--- continually generating random values at a rate of 10MB/s.
+-- means reseeding every 2^56 byte.  For the example numbers this translates to
+-- about 200 years of continually generating random values at a rate of 10MB/s.
 data GenAutoReseed a b = GenAutoReseed !a !b !Int !Int
 
 instance (CryptoRandomGen a, CryptoRandomGen b) => CryptoRandomGen (GenAutoReseed a b) where
