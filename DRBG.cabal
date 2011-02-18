@@ -4,7 +4,7 @@ license:	BSD3
 license-file:	LICENSE
 author:		Thomas DuBuisson <thomas.dubuisson@gmail.com>
 maintainer:	Thomas DuBuisson
-description:	A deterministic random bit generator implementing Hash and HMAC based DRBGs from NIST SP 800-90.
+description:	Cryptographically secure RNGs (both Hash and HMAC based)
 synopsis:	A deterministic random bit generator (aka RNG, PRNG) implementing DRBGs from NIST SP 800-90
 category:	Cryptography
 stability:	stable
