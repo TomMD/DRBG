@@ -33,17 +33,27 @@ a 'CryptoRandomGen' as desired.
  -}
 
 module Crypto.Random.DRBG
-	( HmacDRBG, HashDRBG
+	(
+	-- * Basic Hash-based Generators
+	  HmacDRBG, HashDRBG
 	, HmacDRBGWith, HashDRBGWith
+	-- * Basic Cipher-based Generator
+	, GenCounter
+	-- * CryptoRandomGen Transformers
 	, GenXor
-	, GenAutoReseed, newGenAutoReseed, newGenAutoReseedIO
 	, GenBuffered
+	, GenAutoReseed
+	-- * AutoReseed generator construction with custom reseed interval
+	, newGenAutoReseed, newGenAutoReseedIO
+	-- * Helper Re-exports
 	, module Crypto.Random
 	) where
 
 import qualified Crypto.Random.DRBG.HMAC as M
 import qualified Crypto.Random.DRBG.Hash as H
+import Crypto.Random.DRBG.Util
 import Crypto.Classes
+import Crypto.Modes
 import Crypto.Random
 import Crypto.Hash.SHA512 (SHA512)
 import Crypto.Hash.SHA384 (SHA384)
@@ -52,14 +62,14 @@ import Crypto.Hash.SHA224 (SHA224)
 import Crypto.Hash.SHA1 (SHA1)
 import System.Crypto.Random
 import qualified Data.ByteString as B
-import qualified Data.ByteString.Lazy as L
+import qualified Data.ByteString.Internal as BI
 import Data.Tagged
 import Data.Proxy
 import Data.Bits (xor)
 import Control.Parallel
 import Control.Monad (liftM)
 import Control.Monad.Error () -- Either instance
-import System.IO.Unsafe (unsafeInterleaveIO)
+import Data.Serialize (encode)
 
 instance H.SeedLength SHA512 where
 	seedlen = Tagged 888
@@ -216,6 +226,11 @@ instance (CryptoRandomGen a, CryptoRandomGen b) => CryptoRandomGen (GenAutoResee
 	{-# SPECIALIZE instance CryptoRandomGen (GenAutoReseed HashDRBG HmacDRBG) #-}
 	{-# SPECIALIZE instance CryptoRandomGen (GenAutoReseed HmacDRBG HashDRBG) #-}
 	newGen bs = newGenAutoReseed bs (2^15)
+	newGenIO  = do
+		b <- newGenAutoReseedIO (2^15)
+		case b of
+			Left err -> error $ show err
+			Right g  -> return g
 	genSeedLength =
 		let a = helper1 res
 		    b = helper2 res
@@ -284,6 +299,10 @@ instance (CryptoRandomGen a, CryptoRandomGen b) => CryptoRandomGen (GenXor a b) 
 		    fromRight (Right x) = x
 		a <- g1
 		b <- g2
+		return (GenXor a b)
+	newGenIO = do
+		a <- newGenIO
+		b <- newGenIO
 		return (GenXor a b)
 	genSeedLength =
 		let a = helperXor1 res
@@ -379,6 +398,45 @@ wrapErr (Right r) _ = Right r
 eval :: Either x (B.ByteString, g) -> Either x (B.ByteString, g)
 eval (Left x) = Left x
 eval (Right (g,bs)) = bs `seq` (g `seq` (Right (g, bs)))
+
+-- |@GenCounter k@ is a cryptographic BlockCipher with key @k@
+-- being used in 'ctr' mode to generate random bytes.
+data GenCounter a = GenCounter a (IV a)
+
+instance BlockCipher x => CryptoRandomGen (GenCounter x) where
+  newGen  bytes = case buildKey bytes of Nothing -> Left NotEnoughEntropy
+                                         Just x  -> Right (GenCounter x zeroIV)
+  newGenIO = do
+	let b = keyLength
+	kd <- getEntropy ((untag b + 7) `div` 8)
+	case buildKey kd of
+		Nothing -> error "Failed to generate key for GenCounter"
+		Just k  -> return $ GenCounter (k `asTaggedTypeOf` b) zeroIV
+  genSeedLength =
+	let rt :: Tagged x Int -> Tagged (GenCounter x) Int
+	    rt = Tagged . (`div` 8) . unTagged
+	in rt keyLength
+
+  -- If this is called for less than blockSize data 
+  genBytes req (GenCounter k counter) =
+	let bs = B.replicate req' 0
+	    blkSz = blockSizeBytes `for` k
+	    (rnd,iv) = ctr' incIV k counter bs
+	    req' = (req + blkSz - 1) `div` blkSz
+	in Right (B.take req rnd, GenCounter k iv)
+
+  reseed bs (GenCounter k _) = newGen (xorExtendBS (encode k) bs)
+
+xorExtendBS a b = res
+   where
+   x = B.pack $ B.zipWith Data.Bits.xor a b
+   res | al /= bl = x
+       | otherwise = B.append x rem
+   al = B.length a
+   bl = B.length b
+   rem | bl > al = B.drop al b
+       | otherwise = B.drop bl a
+
 
 -- |zipWith xor + Pack
 -- As a result of rewrite rules, this should automatically be optimized (at compile time) 
