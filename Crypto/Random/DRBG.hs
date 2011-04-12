@@ -427,7 +427,7 @@ instance BlockCipher x => CryptoRandomGen (GenCounter x) where
 
   -- If this is called for less than blockSize data 
   genBytes req (GenCounter rs k counter) =
-	let bs = B.replicate req' 0
+	let bs = B.replicate (req' * blkSz) 0
 	    blkSz = blockSizeBytes `for` k
 	    (rnd,iv) = ctr' incIV k counter bs
 	    req' = (req + blkSz - 1) `div` blkSz
