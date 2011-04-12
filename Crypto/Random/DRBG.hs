@@ -132,16 +132,11 @@ newGenAutoReseed bs rsInterval=
 -- interval of @i@ bytes, using the system random number generator as a seed.
 --
 -- See 'newGenAutoReseed'.
-newGenAutoReseedIO :: (CryptoRandomGen a, CryptoRandomGen b) =>
-                   Int -> IO (Either GenError (GenAutoReseed a b))
+newGenAutoReseedIO :: (CryptoRandomGen a, CryptoRandomGen b) => Int -> IO (GenAutoReseed a b)
 newGenAutoReseedIO i   = do
-	let p = Proxy
-	    getG :: (CryptoRandomGen a, CryptoRandomGen b) => 
-                    Proxy (GenAutoReseed a b) -> IO (Either GenError (GenAutoReseed a b))
-	    getG p = liftM (\bs -> newGenAutoReseed bs i `asProxyTypeOf` rightProxy p)
-                           (getEntropy (seed p))
-	g <- getG p
-	return (g `asProxyTypeOf` p)
+	g1 <- newGenIO
+	g2 <- newGenIO
+	return $ GenAutoReseed g1 g2 i 0
 
 seed :: CryptoRandomGen g => Proxy g -> Int
 seed x = proxy genSeedLength x
@@ -228,11 +223,7 @@ instance (CryptoRandomGen a, CryptoRandomGen b) => CryptoRandomGen (GenAutoResee
 	{-# SPECIALIZE instance CryptoRandomGen (GenAutoReseed HashDRBG HmacDRBG) #-}
 	{-# SPECIALIZE instance CryptoRandomGen (GenAutoReseed HmacDRBG HashDRBG) #-}
 	newGen bs = newGenAutoReseed bs (2^15)
-	newGenIO  = do
-		b <- newGenAutoReseedIO (2^15)
-		case b of
-			Left err -> error $ show err
-			Right g  -> return g
+	newGenIO  = newGenAutoReseedIO (2^15)
 	genSeedLength =
 		let a = helper1 res
 		    b = helper2 res
