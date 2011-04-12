@@ -38,7 +38,7 @@ module Crypto.Random.DRBG
 	  HmacDRBG, HashDRBG
 	, HmacDRBGWith, HashDRBGWith
 	-- * Basic Cipher-based Generator
-	, GenCounter
+	, GenAES, GenCounter
 	-- * CryptoRandomGen Transformers
 	, GenXor
 	, GenBuffered
@@ -60,6 +60,7 @@ import Crypto.Hash.SHA384 (SHA384)
 import Crypto.Hash.SHA256 (SHA256)
 import Crypto.Hash.SHA224 (SHA224)
 import Crypto.Hash.SHA1 (SHA1)
+import Crypto.Cipher.AES (AES128)
 import System.Crypto.Random
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Internal as BI
@@ -70,6 +71,7 @@ import Control.Parallel
 import Control.Monad (liftM)
 import Control.Monad.Error () -- Either instance
 import Data.Serialize (encode)
+import Data.Word
 
 instance H.SeedLength SHA512 where
 	seedlen = Tagged 888
@@ -399,33 +401,41 @@ eval :: Either x (B.ByteString, g) -> Either x (B.ByteString, g)
 eval (Left x) = Left x
 eval (Right (g,bs)) = bs `seq` (g `seq` (Right (g, bs)))
 
+-- |A random number generator using AES128 in ctr mode.
+type GenAES = GenCounter AES128
+
 -- |@GenCounter k@ is a cryptographic BlockCipher with key @k@
 -- being used in 'ctr' mode to generate random bytes.
-data GenCounter a = GenCounter a (IV a)
+data GenCounter a = GenCounter {-# UNPACK #-} !Word64 a (IV a)
 
 instance BlockCipher x => CryptoRandomGen (GenCounter x) where
-  newGen  bytes = case buildKey bytes of Nothing -> Left NotEnoughEntropy
-                                         Just x  -> Right (GenCounter x zeroIV)
+  newGen bytes =
+	let kl = keyLength
+	in case buildKey (B.take (untag kl `div` 8) bytes) of
+		Nothing -> Left NotEnoughEntropy
+		Just x  -> Right (GenCounter 0 (x `asTaggedTypeOf` kl) zeroIV)
   newGenIO = do
 	let b = keyLength
 	kd <- getEntropy ((untag b + 7) `div` 8)
 	case buildKey kd of
 		Nothing -> error "Failed to generate key for GenCounter"
-		Just k  -> return $ GenCounter (k `asTaggedTypeOf` b) zeroIV
+		Just k  -> return $ GenCounter 0 (k `asTaggedTypeOf` b) zeroIV
   genSeedLength =
 	let rt :: Tagged x Int -> Tagged (GenCounter x) Int
 	    rt = Tagged . (`div` 8) . unTagged
 	in rt keyLength
 
   -- If this is called for less than blockSize data 
-  genBytes req (GenCounter k counter) =
+  genBytes req (GenCounter rs k counter) =
 	let bs = B.replicate req' 0
 	    blkSz = blockSizeBytes `for` k
 	    (rnd,iv) = ctr' incIV k counter bs
 	    req' = (req + blkSz - 1) `div` blkSz
-	in Right (B.take req rnd, GenCounter k iv)
+	in if rs >= 2^48
+		then Left NeedReseed
+		else Right (B.take req rnd, GenCounter (rs+1) k iv)
 
-  reseed bs (GenCounter k _) = newGen (xorExtendBS (encode k) bs)
+  reseed bs (GenCounter _ k _) = newGen (xorExtendBS (encode k) bs)
 
 xorExtendBS a b = res
    where
