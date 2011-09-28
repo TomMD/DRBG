@@ -61,7 +61,7 @@ import Crypto.Hash.SHA256 (SHA256)
 import Crypto.Hash.SHA224 (SHA224)
 import Crypto.Hash.SHA1 (SHA1)
 import Crypto.Cipher.AES (AES128)
-import System.Crypto.Random
+import System.Entropy
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Internal as BI
 import Data.Tagged
