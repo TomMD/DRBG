@@ -1,5 +1,5 @@
 name:		DRBG
-version:	0.2.2
+version:	0.2.3
 license:	BSD3
 license-file:	LICENSE
 author:		Thomas DuBuisson <thomas.dubuisson@gmail.com>
@@ -27,12 +27,12 @@ Library
   ghc-options: -O2
   hs-source-dirs:
   exposed-modules: Crypto.Random.DRBG.Hash, Crypto.Random.DRBG.HMAC, Crypto.Random.DRBG, Crypto.Random.DRBG.Types
-  other-modules: Crypto.Random.DRBG.HashDF, Crypto.Random.DRBG.Util
+  other-modules: Crypto.Random.DRBG.HashDF Crypto.Random.DRBG.Util
 
 Executable drbg_test
   if !flag(test)
     buildable: False
   main-is: Test/KAT.hs
   if flag(test)
-    build-depends: base, QuickCheck, crypto-api, bytestring, binary, cereal, cryptohash
+    build-depends: base, QuickCheck, crypto-api, bytestring, binary, cereal, cryptohash, crypto-api-tests, HUnit, test-framework, test-framework-hunit
   other-modules: Paths_DRBG

@@ -21,13 +21,21 @@ import Crypto.HMAC
 import Crypto.Types
 import Data.Bits (xor)
 import Data.Tagged
+import Data.Proxy
 import Data.Maybe (maybeToList)
 import Data.List (deleteBy, isPrefixOf)
 import Test.Crypto
 import Test.ParseNistKATs
 import Paths_DRBG
 
-main = hmacMain >> hashMain
+import Test.Framework
+import Test.HUnit.Base (assertEqual)
+import Test.Framework.Providers.HUnit (testCase)
+
+main = do
+  h <- nistTests_HMAC
+  s <- nistTests_Hash
+  defaultMain (h ++ s)
 
 -- Test the SHA-256 HMACs (other hash implementations will be tested once crypthash uses the crypto-api classes)
 nistTests_HMAC :: IO [Test]
@@ -85,7 +93,7 @@ categoryToTest_HMAC (props, ts) =
 		    st3 = M.reseed st2 (hx eInPR2) (hx aIn2)
 		    Just (r1,_) = M.generate st3 olen B.empty
 		in r1
-	return (TK (f == L.fromChunks [hexStringToBS ret]) name)
+	return (testCase name $ assertEqual name f (hexStringToBS ret))
 	| otherwise = do
 	cnt <- lookup "COUNT" t
 	let name = testName ++ "-" ++ cnt
@@ -106,12 +114,7 @@ categoryToTest_HMAC (props, ts) =
 		    st2 = M.reseed st1 (hx eInRS) (hx aInRS)
 		    Just (r1, _) = M.generate st2 olen (hx aIn2)
 		in r1
-	return (TK (f == L.fromChunks [hexStringToBS ret]) name)
-
--- Test the HMAC DRBG functionallity
-hmacMain = nistTests_HMAC >>= runTests
-
-hashMain = nistTests_Hash >>= runTests
+	return (testCase name $ assertEqual name (hexStringToBS ret) f)
 
 nistTests_Hash :: IO [Test]
 nistTests_Hash = do
@@ -160,7 +163,7 @@ categoryToTest_Hash (props, ts) =
                     st3 = H.reseed st2 (hx eInPR2) (hx aIn2)
                     Just (r1,_) = H.generate st3 olen B.empty
                 in r1
-        return (TK (f == L.fromChunks [hexStringToBS ret]) name)
+        return (testCase name $ assertEqual name (hexStringToBS ret) f)
   buildKAT p t
 	| otherwise = do
         cnt <- lookup "COUNT" t
@@ -182,7 +185,7 @@ categoryToTest_Hash (props, ts) =
                     st2 = H.reseed st1 (hx eInRS) (hx aInRS)
                     Just (r1, _) = H.generate st2 olen (hx aIn2)
                 in r1
-        return (TK (f == L.fromChunks [hexStringToBS ret]) name)
+        return (testCase name $ assertEqual name (hexStringToBS ret) f)
 
 proxyUnwrapHashState :: Proxy (H.State a) -> Proxy a
 proxyUnwrapHashState = const Proxy
