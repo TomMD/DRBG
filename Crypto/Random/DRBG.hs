@@ -6,13 +6,27 @@
 
 This module is the convenience interface for the DRBG (NIST standardized
 number-theoretically secure random number generator).  Everything is setup
-for using the "crypto-api" 'CryptoRandomGen' type class.  For example,
-to seed a new generator with the system secure random ('System.Crypto.Random')
-and generate some bytes (stepping the generator along the way) one would do:
+for using the "crypto-api" 'CryptoRandomGen' type class.  
+
+To instantiate the base types of 'HmacDRBG', 'HashDRBG', or 'GenAES' just use
+the 'CryptoRandomGen' primitives of 'newGen' or 'newGenIO'.
+
+For example, to seed a new generator with the system secure random
+('System.Entropy') and generate some bytes (stepping the generator along
+the way) one would do:
 
 @
     gen <- newGenIO :: IO HashDRBG
     let Right (randomBytes, newGen) = genBytes 1024 gen
+@
+
+or the same thing with your own entropy (throwing exceptions instead of dealing
+with 'Either' this time):
+
+@
+    let gen = throwLeft (newGen entropy)
+        (bytes,gen') = throwLeft (genBytes 1024 gen)
+    in ...
 @
 
 Selecting the underlying hash algorithm is supporting using *DRBGWith types:
@@ -21,9 +35,18 @@ Selecting the underlying hash algorithm is supporting using *DRBGWith types:
     gen <- newGenIO :: IO (HmacDRBGWith SHA224)
 @
 
-Composition of generators is supported using two trivial compositions, 'GenXor'
-and 'GenAutoReseed'.  Additional compositions can be built by instanciating
-a 'CryptoRandomGen' as desired.
+There are several modifiers that allow you to compose generators together, producing
+generators with modified security, reseed, and performance properties.  'GenXor'
+will xor the random bytes of two generators.  'GenBuffered' will spark off work
+to generate several megabytes of random data and keep that data buffered for
+quick use.  'GenAutoReseed' will use one generator to automatically reseed
+another after every 32 kilobytes of requested randoms. 
+
+For a complex example, here is a generator that buffers several megabytes of
+random values which are an Xor of AES with a SHA384 hash that are each reseeded
+every 32kb with the output of a SHA512 HMAC generator.  (Not to claim this has
+any enhanced security properties, but just to show the composition can be
+nested).
 
 @
     gen <- newGenIO :: IO (GenBuffered (GenAutoReseed (GenXor AesCntDRBG (HashDRBGWith SHA384)) HmacDRBG))
