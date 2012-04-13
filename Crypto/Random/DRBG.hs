@@ -70,6 +70,7 @@ module Crypto.Random.DRBG
 	, newGenAutoReseed, newGenAutoReseedIO
 	-- * Helper Re-exports
 	, module Crypto.Random
+	, module Crypto.Types
 	) where
 
 import qualified Crypto.Random.DRBG.HMAC as M
