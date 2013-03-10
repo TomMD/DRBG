@@ -16,7 +16,7 @@ hash_df hashF str reqBits = B.take reqBytes $ getT B.empty (1 :: Word8)
   outlen = outputLength  .::. (hashF undefined)
   hash = encode . hashF . L.fromChunks . \x -> [x]
   getT tmp cnt
-	| B.length tmp >= reqBytes = tmp
+        | B.length tmp >= reqBytes = tmp
         | otherwise = let new = hash (B.concat [B.singleton cnt, reqBitsBS, str]) in getT (B.append tmp new) (cnt + 1)
   len = (if reqBits `rem` outlen == 0 then reqBits `div` outlen else (reqBits + outlen) `div` outlen)
   reqBitsBS = runPut $ putWord32be (fromIntegral reqBits :: Word32)
