@@ -11,6 +11,7 @@ import qualified Data.ByteString.Lazy as L
 import Data.Serialize (encode, Serialize(..))
 import Data.Serialize.Put
 import Data.Serialize.Builder (toByteString)
+import Data.Word (Word64)
 import Crypto.Classes
 import Crypto.HMAC
 import Crypto.Types
@@ -20,13 +21,14 @@ type Key = B.ByteString
 type Value = B.ByteString
 
 data State d = St
-	{ value			:: !Value
-	, key			:: !Key
-	, counter		:: !Integer
+	{ counter		:: {-# UNPACK #-} !Word64
 	-- Start admin info
+	, value			:: !Value
+	, key			:: !Key
 	, hashAlg		:: L.ByteString -> d
 	}
 
+reseedInterval :: Word64
 reseedInterval = 2^48
 
 fc = L.fromChunks . \s -> [s]
@@ -52,7 +54,7 @@ instantiate ent nonce perStr = st
   seedMaterial = L.fromChunks [ent, nonce, perStr]
   k = B.replicate olen 0
   v = B.replicate olen 1
-  st =  update (St v k 1 hash) seedMaterial
+  st =  update (St 1 v k hash) seedMaterial
   d  = hashAlg st undefined
   olen = (outputLength .::. d) `div` 8
 
