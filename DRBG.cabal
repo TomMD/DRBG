@@ -40,3 +40,7 @@ Executable drbg_test
   if flag(test)
     build-depends: base, QuickCheck, crypto-api, bytestring, binary, cereal, cryptohash, crypto-api-tests, HUnit, test-framework, test-framework-hunit
   other-modules: Paths_DRBG
+
+source-repository head
+  type:         git
+  location:     https://github.com/TomMD/cipher-aes128

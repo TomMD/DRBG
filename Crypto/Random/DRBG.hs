@@ -142,14 +142,14 @@ type HashDRBG = H.State SHA512
 -- 
 -- Will last for @2^48 * 2^41@ bytes of randomly generated data.  That's
 -- 2^49 terabytes of random values (128 byte reseeds every 2^48 bytes generated).
-newGenAutoReseed :: (CryptoRandomGen a, CryptoRandomGen b) => B.ByteString -> Int -> Either GenError (GenAutoReseed a b)
+newGenAutoReseed :: (CryptoRandomGen a, CryptoRandomGen b) => B.ByteString -> Word64 -> Either GenError (GenAutoReseed a b)
 newGenAutoReseed bs rsInterval=
         let (b1,b2) = B.splitAt (genSeedLength `for` fromRight g1) bs
             g1 = newGen b1
             g2 = newGen b2
             fromRight (Right x) = x
         in case (g1, g2) of
-                (Right a, Right b) -> Right $ GenAutoReseed a b rsInterval 0
+                (Right a, Right b) -> Right $ GenAutoReseed rsInterval 0 a b
                 (Left e, _) -> Left e
                 (_, Left e) -> Left e
 
@@ -157,11 +157,11 @@ newGenAutoReseed bs rsInterval=
 -- interval of @i@ bytes, using the system random number generator as a seed.
 --
 -- See 'newGenAutoReseed'.
-newGenAutoReseedIO :: (CryptoRandomGen a, CryptoRandomGen b) => Int -> IO (GenAutoReseed a b)
+newGenAutoReseedIO :: (CryptoRandomGen a, CryptoRandomGen b) => Word64 -> IO (GenAutoReseed a b)
 newGenAutoReseedIO i   = do
         g1 <- newGenIO
         g2 <- newGenIO
-        return $ GenAutoReseed g1 g2 i 0
+        return $ GenAutoReseed i 0 g1 g2
 
 seed :: CryptoRandomGen g => Proxy g -> Int
 seed x = proxy genSeedLength x
@@ -240,7 +240,7 @@ helper2 = const undefined
 -- @2^15 * (2^b / a')@ bytes.  For the common values of @a' = 128@ and @2^b = 2^48@ this
 -- means reseeding every 2^56 byte.  For the example numbers this translates to
 -- about 200 years of continually generating random values at a rate of 10MB/s.
-data GenAutoReseed a b = GenAutoReseed !a !b !Int !Int
+data GenAutoReseed a b = GenAutoReseed {-# UNPACK #-} !Word64 {-# UNPACK #-} !Word64 !a !b
 
 instance (CryptoRandomGen a, CryptoRandomGen b) => CryptoRandomGen (GenAutoReseed a b) where
         {-# SPECIALIZE instance CryptoRandomGen (GenAutoReseed HmacDRBG HmacDRBG) #-}
@@ -254,39 +254,39 @@ instance (CryptoRandomGen a, CryptoRandomGen b) => CryptoRandomGen (GenAutoResee
                     b = helper2 res
                     res = Tagged $ genSeedLength `for` a + genSeedLength `for` b
                 in res
-        genBytes req (GenAutoReseed a b rs cnt) =
+        genBytes req (GenAutoReseed rs cnt a b) =
                 case genBytes req a of
                         Left NeedReseed -> do
                                 (ent,b') <- genBytes (genSeedLength `for` a) b
                                 a' <- reseed ent a
                                 (res, aNew) <- genBytes req a'
-                                return (res,GenAutoReseed aNew b' rs 0)
+                                return (res,GenAutoReseed rs 0 aNew b')
                         Left err -> Left err
                         Right (res,aNew) -> do
-                          gNew <- if (cnt + req) > rs
+                          gNew <- if (cnt + fromIntegral req) > rs
                                         then do 
                                           (ent,b') <- genBytes (genSeedLength `for` a) b
                                           a'  <- reseed ent aNew
-                                          return (GenAutoReseed a' b' rs 0)
-                                        else return $ GenAutoReseed aNew b rs (cnt + req)
+                                          return (GenAutoReseed rs 0 a' b')
+                                        else return $ GenAutoReseed rs (cnt + fromIntegral req) aNew b
                           return (res, gNew)
-        genBytesWithEntropy req entropy (GenAutoReseed a b rs cnt) = do
+        genBytesWithEntropy req entropy (GenAutoReseed rs cnt a b) = do
                 case genBytesWithEntropy req entropy a of
                         Left NeedReseed -> do
                                 (ent,b') <- genBytes (genSeedLength `for` a) b
                                 a' <- reseed ent a
                                 (res, aNew) <- genBytesWithEntropy req entropy a'
-                                return (res,GenAutoReseed aNew b' rs 0)
+                                return (res, GenAutoReseed rs 0 aNew b')
                         Left err -> Left err
                         Right (res,aNew) -> do
-                          gNew <- if (cnt + req) > rs
+                          gNew <- if (cnt + fromIntegral req) > rs
                                         then do 
                                           (ent,b') <- genBytes (genSeedLength `for` a) b
                                           a'  <- reseed ent aNew
-                                          return (GenAutoReseed a' b' rs 0)
-                                        else return $ GenAutoReseed aNew b rs (cnt + req)
+                                          return (GenAutoReseed rs 0 a' b')
+                                        else return $ GenAutoReseed rs (cnt + fromIntegral req) aNew b
                           return (res, gNew)
-        reseed ent gen@(GenAutoReseed a b rs _) 
+        reseed ent gen@(GenAutoReseed rs _ a b) 
           | genSeedLength `for` gen > B.length ent = Left NotEnoughEntropy
           | otherwise = do
                 let (e1,e2) = B.splitAt (genSeedLength `for` a) ent
@@ -294,7 +294,7 @@ instance (CryptoRandomGen a, CryptoRandomGen b) => CryptoRandomGen (GenAutoResee
                 b' <- if B.length e2 /= 0
                         then reseed e2 b
                         else return b
-                return $ GenAutoReseed a' b' rs 0
+                return $ GenAutoReseed rs 0 a' b'
 
 -- |@g :: GenXor a b@ generates bytes with sub-generators a and b 
 -- and exclusive-or's the outputs to produce the resulting bytes.
