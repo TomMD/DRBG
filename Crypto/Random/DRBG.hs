@@ -300,10 +300,20 @@ instance (CryptoRandomGen a, CryptoRandomGen b) => CryptoRandomGen (GenAutoResee
                         then reseed e2 b
                         else return b
                 return $ GenAutoReseed rs 0 a' b'
-        reseedPeriod ~(GenAutoReseed _ _ a b) =
-            case (reseedPeriod a, reseedPeriod b) of
-                (Never, Never) -> Never
-                (Never, Never) -> Never
+        reseedPeriod ~(GenAutoReseed rs _ ag bg) =
+            case (reseedPeriod ag, reseedPeriod bg) of
+                (Never, _) -> Never
+                (_, Never) -> Never
+                (NotSoon, _) -> NotSoon
+                (_, NotSoon) -> NotSoon
+                (_, InXCalls b) ->
+                        if fromIntegral rs * fromIntegral b > fromIntegral (maxBound `asTypeOf` b)
+                            then NotSoon
+                            else InXBytes (rs * b)
+                (_, InXBytes b) ->
+                        let s = genSeedLength `for` ag
+                            nr = if s <= 0 then 1 else ((b `div` fromIntegral s) - 1)
+                        in InXBytes $ rs * nr
         reseedInfo (GenAutoReseed rs x ag bg) =
             -- Attempt to provide a lower bound on the next reseed
             case (reseedInfo ag, reseedInfo bg) of
@@ -313,12 +323,12 @@ instance (CryptoRandomGen a, CryptoRandomGen b) => CryptoRandomGen (GenAutoResee
                     (_, Never)  -> Never
                     (_, InXBytes b) ->
                         let s = genSeedLength `for` ag
-                            nr = if s < 0 then 1 else ((b `div` s) - 1)
+                            nr = if s <= 0 then 1 else ((b `div` fromIntegral s) - 1)
                         in InXBytes $ rs - x + rs * nr
                     (_, InXCalls b) -> 
                         if fromIntegral rs * fromIntegral b > fromIntegral (maxBound `asTypeOf` b)
                             then NotSoon
-                            else return $ InXBytes (rs - x + rs * b)
+                            else InXBytes (rs - x + rs * b)
 
 -- |@g :: GenXor a b@ generates bytes with sub-generators a and b 
 -- and exclusive-or's the outputs to produce the resulting bytes.
@@ -433,8 +443,8 @@ instance (CryptoRandomGen g) => CryptoRandomGen (GenBuffered g) where
                 let new = wrapErr (genBytes (min-B.length bs') g'') g''
                     bs' = B.take max (B.append bs rs)
                 return (GenBuffered min max new bs')
-        reseedPeriod ~(GenBuffered _ _ g _) = reseedPeriod g
-        reseedInfo ~(GenBuffered _ _ g _) = reseedInfo g
+        reseedPeriod ~(GenBuffered _ _ g _) = reseedPeriod . either snd snd $ g
+        reseedInfo ~(GenBuffered _ _ g _) = reseedInfo . either snd snd $ g
 
 wrapErr :: Either x y -> g -> Either (x,g) y
 wrapErr (Left x) g = Left (x,g)
@@ -484,7 +494,7 @@ instance BlockCipher x => CryptoRandomGen (GenCounter x) where
                 else Right (B.take req rnd, GenCounter (rs+1) k iv)
 
   reseed bs (GenCounter _ k _) = newGen (xorExtendBS (encode k) bs)
-  reseedPeriod (GenCounter cnt _ _) = InXCalls 2^48
+  reseedPeriod (GenCounter cnt _ _) = InXCalls (2^48)
   reseedInfo (GenCounter nr _ _) = InXCalls (2^48 - nr)
 
 xorExtendBS a b = res
