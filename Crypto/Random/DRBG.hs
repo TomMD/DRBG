@@ -192,6 +192,9 @@ instance CryptoRandomGen HmacDRBG where
                         then Left NotEnoughEntropy
                         else Right res
 
+        reseedInfo s = InXCalls (M.counter s)
+        reseedPeriod _ = InXCalls M.reseedInterval
+
 instance CryptoRandomGen HashDRBG where
         newGen bs =
                 let res = H.instantiate bs B.empty B.empty
@@ -214,6 +217,8 @@ instance CryptoRandomGen HashDRBG where
                 in if B.length ent < genSeedLength `for` res
                         then Left NotEnoughEntropy
                         else Right res
+        reseedInfo s = InXCalls (H.counter s)
+        reseedPeriod _ = InXCalls H.reseedInterval
 
 helper1 :: Tagged (GenAutoReseed a b) Int -> a
 helper1 = const undefined
@@ -295,6 +300,25 @@ instance (CryptoRandomGen a, CryptoRandomGen b) => CryptoRandomGen (GenAutoResee
                         then reseed e2 b
                         else return b
                 return $ GenAutoReseed rs 0 a' b'
+        reseedPeriod ~(GenAutoReseed _ _ a b) =
+            case (reseedPeriod a, reseedPeriod b) of
+                (Never, Never) -> Never
+                (Never, Never) -> Never
+        reseedInfo (GenAutoReseed rs x ag bg) =
+            -- Attempt to provide a lower bound on the next reseed
+            case (reseedInfo ag, reseedInfo bg) of
+                    (NotSoon, _) -> NotSoon
+                    (_, NotSoon) -> NotSoon
+                    (Never, _)  -> Never
+                    (_, Never)  -> Never
+                    (_, InXBytes b) ->
+                        let s = genSeedLength `for` ag
+                            nr = if s < 0 then 1 else ((b `div` s) - 1)
+                        in InXBytes $ rs - x + rs * nr
+                    (_, InXCalls b) -> 
+                        if fromIntegral rs * fromIntegral b > fromIntegral (maxBound `asTypeOf` b)
+                            then NotSoon
+                            else return $ InXBytes (rs - x + rs * b)
 
 -- |@g :: GenXor a b@ generates bytes with sub-generators a and b 
 -- and exclusive-or's the outputs to produce the resulting bytes.
@@ -340,6 +364,8 @@ instance (CryptoRandomGen a, CryptoRandomGen b) => CryptoRandomGen (GenXor a b) 
                 a' <- reseed b1 a
                 b' <- reseed b2 b
                 return (GenXor a' b')
+        reseedPeriod ~(GenXor a b) = min (reseedPeriod a) (reseedPeriod b)
+        reseedInfo   ~(GenXor a b) = min (reseedInfo a) (reseedInfo b)
 
 -- |@g :: GenBuffered a@ is a generator of type @a@ that attempts to
 -- maintain a buffer of random values size >= 1MB and <= 5MB at any time.
@@ -407,6 +433,8 @@ instance (CryptoRandomGen g) => CryptoRandomGen (GenBuffered g) where
                 let new = wrapErr (genBytes (min-B.length bs') g'') g''
                     bs' = B.take max (B.append bs rs)
                 return (GenBuffered min max new bs')
+        reseedPeriod ~(GenBuffered _ _ g _) = reseedPeriod g
+        reseedInfo ~(GenBuffered _ _ g _) = reseedInfo g
 
 wrapErr :: Either x y -> g -> Either (x,g) y
 wrapErr (Left x) g = Left (x,g)
@@ -422,6 +450,10 @@ type GenAES = GenCounter AESKey
 
 -- |@GenCounter k@ is a cryptographic BlockCipher with key @k@
 -- being used in 'ctr' mode to generate random bytes.
+--
+-- Notice this is the only generator in the package that does not follow
+-- SP800-90.  It is a rather hap-hazard construction.  Use at your own risk
+-- and patch at your own leisure.
 data GenCounter a = GenCounter {-# UNPACK #-} !Word64 a (IV a)
 
 instance BlockCipher x => CryptoRandomGen (GenCounter x) where
@@ -452,6 +484,8 @@ instance BlockCipher x => CryptoRandomGen (GenCounter x) where
                 else Right (B.take req rnd, GenCounter (rs+1) k iv)
 
   reseed bs (GenCounter _ k _) = newGen (xorExtendBS (encode k) bs)
+  reseedPeriod (GenCounter cnt _ _) = InXCalls 2^48
+  reseedInfo (GenCounter nr _ _) = InXCalls (2^48 - nr)
 
 xorExtendBS a b = res
    where
@@ -462,7 +496,6 @@ xorExtendBS a b = res
    bl = B.length b
    rem | bl > al = B.drop al b
        | otherwise = B.drop bl a
-
 
 -- |zipWith xor + Pack
 -- As a result of rewrite rules, this should automatically be optimized (at compile time) 

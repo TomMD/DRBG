@@ -1,6 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
 module Crypto.Random.DRBG.HMAC
-        ( State
+        ( State, counter
         , reseedInterval
         , instantiate
         , reseed

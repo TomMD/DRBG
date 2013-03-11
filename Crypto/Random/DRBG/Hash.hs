@@ -1,6 +1,6 @@
 {-# LANGUAGE BangPatterns, MonomorphismRestriction #-}
 module Crypto.Random.DRBG.Hash
-        ( State
+        ( State, counter
         , reseedInterval
         , SeedLength (..)
         , instantiate
