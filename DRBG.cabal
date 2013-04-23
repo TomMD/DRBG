@@ -31,14 +31,14 @@ Library
                    Crypto.Random.DRBG.HMAC,
                    Crypto.Random.DRBG,
                    Crypto.Random.DRBG.Types
-  other-modules: Crypto.Random.DRBG.HashDF Crypto.Random.DRBG.Util
+  other-modules: Crypto.Random.DRBG.HashDF
 
 Executable drbg_test
   if !flag(test)
     buildable: False
   main-is: Test/KAT.hs
   if flag(test)
-    build-depends: base, QuickCheck, crypto-api, bytestring, binary, cereal, cryptohash, crypto-api-tests, HUnit, test-framework, test-framework-hunit
+    build-depends: base, QuickCheck, crypto-api, bytestring, binary, cereal, cryptohash-cryptoapi, crypto-api-tests, HUnit, test-framework, test-framework-hunit
   other-modules: Paths_DRBG
 
 source-repository head

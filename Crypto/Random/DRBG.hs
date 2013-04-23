@@ -75,10 +75,10 @@ module Crypto.Random.DRBG
 
 import qualified Crypto.Random.DRBG.HMAC as M
 import qualified Crypto.Random.DRBG.Hash as H
-import Crypto.Random.DRBG.Util
+import Crypto.Util
 import Crypto.Classes
-import Crypto.Modes
 import Crypto.Random
+import Crypto.Modes (zeroIV)
 import Crypto.Hash.SHA512 (SHA512)
 import Crypto.Hash.SHA384 (SHA384)
 import Crypto.Hash.SHA256 (SHA256)
@@ -487,7 +487,7 @@ instance BlockCipher x => CryptoRandomGen (GenCounter x) where
   genBytes req (GenCounter rs k counter) =
         let bs = B.replicate (req' * blkSz) 0
             blkSz = blockSizeBytes `for` k
-            (rnd,iv) = ctr' incIV k counter bs
+            (rnd,iv) = ctr k counter bs
             req' = (req + blkSz - 1) `div` blkSz
         in if rs >= 2^48
                 then Left NeedReseed
@@ -506,8 +506,3 @@ xorExtendBS a b = res
    bl = B.length b
    rem | bl > al = B.drop al b
        | otherwise = B.drop bl a
-
--- |zipWith xor + Pack
--- As a result of rewrite rules, this should automatically be optimized (at compile time) 
--- to use the bytestring libraries 'zipWith'' function.
-zwp' a = B.pack . B.zipWith xor a

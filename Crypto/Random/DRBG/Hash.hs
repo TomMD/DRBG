@@ -18,7 +18,6 @@ import Data.Serialize (encode)
 import Data.Bits (shiftR, shiftL)
 import Data.Tagged
 import Data.Word (Word64)
-import Crypto.Random.DRBG.Util
 
 class SeedLength h where
   seedlen :: Tagged h Int
