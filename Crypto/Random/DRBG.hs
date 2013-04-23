@@ -79,11 +79,7 @@ import Crypto.Util
 import Crypto.Classes
 import Crypto.Random
 import Crypto.Modes (zeroIV)
-import Crypto.Hash.SHA512 (SHA512)
-import Crypto.Hash.SHA384 (SHA384)
-import Crypto.Hash.SHA256 (SHA256)
-import Crypto.Hash.SHA224 (SHA224)
-import Crypto.Hash.SHA1 (SHA1)
+import Crypto.Hash.CryptoAPI
 import Crypto.Cipher.AES128 (AESKey)
 import Crypto.Types
 import System.Entropy
