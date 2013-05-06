@@ -1,5 +1,5 @@
 name:           DRBG
-version:        0.3.2
+version:        0.3.3
 license:        BSD3
 license-file:   LICENSE
 author:         Thomas DuBuisson <thomas.dubuisson@gmail.com>
@@ -23,12 +23,13 @@ flag test
 Library
   Build-Depends: base >= 4.0 && < 5, cereal >= 0.2,
                  bytestring, prettyclass, tagged >= 0.2,
-                 crypto-api >= 0.12, cryptohash-cryptoapi >= 0.1, parallel, mtl >= 2.0,
+                 crypto-api >= 0.12.1, cryptohash-cryptoapi >= 0.1, parallel, mtl >= 2.0,
                  cipher-aes128, entropy
   ghc-options: -O2
   hs-source-dirs:
   exposed-modules: Crypto.Random.DRBG.Hash,
                    Crypto.Random.DRBG.HMAC,
+                   Crypto.Random.DRBG.CTR,
                    Crypto.Random.DRBG,
                    Crypto.Random.DRBG.Types
   other-modules: Crypto.Random.DRBG.HashDF

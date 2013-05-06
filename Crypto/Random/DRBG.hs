@@ -1,4 +1,4 @@
-{-# LANGUAGE EmptyDataDecls, FlexibleInstances, TypeSynonymInstances, BangPatterns #-}
+{-# LANGUAGE EmptyDataDecls, FlexibleInstances, TypeSynonymInstances, BangPatterns, ScopedTypeVariables #-}
 {-|
  Maintainer: Thomas.DuBuisson@gmail.com
  Stability: beta
@@ -75,6 +75,7 @@ module Crypto.Random.DRBG
 
 import qualified Crypto.Random.DRBG.HMAC as M
 import qualified Crypto.Random.DRBG.Hash as H
+import qualified Crypto.Random.DRBG.CTR  as CTR
 import Crypto.Util
 import Crypto.Classes
 import Crypto.Random
@@ -158,12 +159,6 @@ newGenAutoReseedIO i   = do
         g1 <- newGenIO
         g2 <- newGenIO
         return $ GenAutoReseed i 0 g1 g2
-
-seed :: CryptoRandomGen g => Proxy g -> Int
-seed x = proxy genSeedLength x
-
-rightProxy :: Proxy p -> Proxy (Either x p)
-rightProxy = reproxy
 
 instance CryptoRandomGen HmacDRBG where
         newGen bs =
@@ -377,9 +372,6 @@ instance (CryptoRandomGen a, CryptoRandomGen b) => CryptoRandomGen (GenXor a b) 
 -- maintain a buffer of random values size >= 1MB and <= 5MB at any time.
 data GenBuffered g = GenBuffered Int Int (Either (GenError, g) (B.ByteString, g)) {-# UNPACK #-} !B.ByteString
 
-proxyToGenBuffered :: Proxy g -> Proxy (Either GenError (GenBuffered g))
-proxyToGenBuffered = const Proxy
-
 bufferMinDef = 2^20
 bufferMaxDef = 2^22
 
@@ -456,42 +448,48 @@ type GenAES = GenCounter AESKey
 
 -- |@GenCounter k@ is a cryptographic BlockCipher with key @k@
 -- being used in 'ctr' mode to generate random bytes.
---
--- Notice this is the only generator in the package that does not follow
--- SP800-90.  It is a rather hap-hazard construction.  Use at your own risk
--- and patch at your own leisure.
-data GenCounter a = GenCounter {-# UNPACK #-} !Word64 a (IV a)
+type GenCounter a = CTR.State a
 
 instance BlockCipher x => CryptoRandomGen (GenCounter x) where
   newGen bytes =
-        let kl = keyLength
-        in case buildKey (B.take (untag kl `div` 8) bytes) of
-                Nothing -> Left NotEnoughEntropy
-                Just x  -> Right (GenCounter 0 (x `asTaggedTypeOf` kl) zeroIV)
+      case CTR.instantiate bytes B.empty of
+        Nothing -> Left NotEnoughEntropy
+        Just st -> Right st
+
   newGenIO = do
-        let b = keyLength
-        kd <- getEntropy ((untag b + 7) `div` 8)
-        case buildKey kd of
-                Nothing -> error "Failed to generate key for GenCounter"
-                Just k  -> return $ GenCounter 0 (k `asTaggedTypeOf` b) zeroIV
+      let k = undefined :: x -- Types weren't unifying with proxy, bug?
+          b = (keyLength `for` k) + (blockSize `for` k) + 7
+          e =  "Unable to generate enough entropy to instantiate CTR DRBG"
+      kd <- getEntropy (b `div` 8)
+      case CTR.instantiate kd B.empty of
+        Nothing -> error e
+        Just st -> return st
+
   genSeedLength =
-        let rt :: Tagged x Int -> Tagged (GenCounter x) Int
-            rt = Tagged . (`div` 8) . unTagged
-        in rt keyLength
+        let rt :: Tagged x Int -> Tagged x Int -> Tagged (GenCounter x) Int
+            rt x y = Tagged $ 
+                let k = unTagged x
+                    b = unTagged y
+                in k + b
+        in rt keyLengthBytes blockSizeBytes
 
   -- If this is called for less than blockSize data 
-  genBytes req (GenCounter rs k counter) =
-        let bs = B.replicate (req' * blkSz) 0
-            blkSz = blockSizeBytes `for` k
-            (rnd,iv) = ctr k counter bs
-            req' = (req + blkSz - 1) `div` blkSz
-        in if rs >= 2^48
-                then Left NeedReseed
-                else Right (B.take req rnd, GenCounter (rs+1) k iv)
+  genBytes req st =
+      case CTR.generate st req B.empty of
+            Nothing       -> Left NeedReseed
+            Just (bs,new) -> Right (bs,new)
 
-  reseed bs (GenCounter _ k _) = newGen (xorExtendBS (encode k) bs)
-  reseedPeriod (GenCounter cnt _ _) = InXCalls (2^48)
-  reseedInfo (GenCounter nr _ _) = InXCalls (2^48 - nr)
+  reseed ent st  = 
+    case CTR.reseed st ent B.empty of
+      Nothing -> Left NeedReseed
+      Just s  -> Right s
+
+  reseedPeriod _ = InXCalls CTR.reseedInterval
+
+  reseedInfo st  = InXCalls (CTR.reseedInterval - CTR.getCounter st)
+
+asProxyStateTypeOf :: CTR.State a -> Proxy a -> CTR.State a
+asProxyStateTypeOf = const
 
 xorExtendBS a b = res
    where
