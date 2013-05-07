@@ -43,8 +43,8 @@ update provided_data st
 {-# INLINEABLE update #-}
 
 -- | Instantiate a new CTR based counter.  This assumes the block cipher is
--- safe for generating 2^48 seperate bitstrings (e.g. For SP800-90 this assumes this is AES
--- and not 3DES)
+-- safe for generating 2^48 seperate bitstrings (e.g. For SP800-90 this assumes
+-- this is AES and not 3DES)
 instantiate :: BlockCipher a => Entropy -> PersonalizationString -> Maybe (State a)
 instantiate ent perStr = st
   where
@@ -64,7 +64,6 @@ instantiate ent perStr = st
 keyOfState :: Maybe (State a) -> a
 keyOfState = const undefined
 
-
 -- |@reseed oldRNG entropy additionalInfo@
 --
 -- Reseed a DRBG with some entropy ('ent' must be at least seedlength, which is the
@@ -73,16 +72,17 @@ reseed :: BlockCipher a => State a -> Entropy -> AdditionalInput -> Maybe (State
 reseed st0 ent ai = st1
   where
   seedLen = (blockSizeBytes `for` key st0) + (keyLengthBytes `for` key st0)
-  newAI = (B.take seedLen (B.append ai (B.replicate seedLen 0)))
+  newAI   = B.take seedLen (B.append ai (B.replicate seedLen 0))
   seedMat = zwp' ent newAI
-  st1 = update seedMat (st0 { counter = 1} )
+  st1     = update seedMat (st0 { counter = 1} )
+{-# INLINABLE reseed #-}
 
 -- |Generate new bytes of data, stepping the generator.
 generate :: BlockCipher a => State a -> ByteLength -> AdditionalInput -> Maybe (RandomBits, State a)
 generate st0 len ai0
   | counter st0 > reseedInterval = Nothing
   | not (B.null ai0) =
-      let aiNew = (B.take outLen (B.append ai0 (B.replicate outLen 0)))
+      let aiNew = (B.take seedLen (B.append ai0 (B.replicate seedLen 0)))
       in join $ fmap (\new -> go new aiNew) (update aiNew st0)
   | otherwise = go st0 (B.replicate seedLen 0)
   where
@@ -91,9 +91,11 @@ generate st0 len ai0
   seedLen = outLen + keyLen
   -- go :: BlockCipher a => State a -> AdditionalInput -> Maybe (RandomBits, State a)
   go st ai =
-      let (temp,_) = ctr (key st) (value st) (B.replicate len 0)
-          st1      = update ai (st { counter = counter st + 1 } )
+      let (temp,v2) = ctr (key st) (value st) (B.replicate len 0)
+          st1       = update ai (st { value = v2
+                                    , counter = counter st + 1 })
       in fmap (temp,) st1
+{-# INLINABLE generate #-}
 
 -- |The reseed interval
 reseedInterval :: Word64

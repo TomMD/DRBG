@@ -1,5 +1,5 @@
 name:           DRBG
-version:        0.3.3
+version:        0.4
 license:        BSD3
 license-file:   LICENSE
 author:         Thomas DuBuisson <thomas.dubuisson@gmail.com>
@@ -39,7 +39,17 @@ Executable drbg_test
     buildable: False
   main-is: Test/KAT.hs
   if flag(test)
-    build-depends: base, QuickCheck, crypto-api, bytestring, binary, cereal, cryptohash-cryptoapi, crypto-api-tests, HUnit, test-framework, test-framework-hunit
+    build-depends:   base
+                   , QuickCheck
+                   , crypto-api
+                   , bytestring
+                   , binary
+                   , cereal
+                   , cryptohash-cryptoapi
+                   , crypto-api-tests
+                   , HUnit
+                   , test-framework
+                   , test-framework-hunit
   other-modules: Paths_DRBG
 
 source-repository head

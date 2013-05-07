@@ -37,11 +37,11 @@ update :: (Hash c d) => State d -> L.ByteString -> State d
 update st input = st { value = newV , key = newK }
   where
   hm k = hmac (MacKey k)
-  d  = hashAlg st undefined
-  k  = key st
-  v  = value st
-  k' = encode $ (hm k (L.concat [fc v, L.singleton 0, input]) `asTypeOf` d)
-  v' = encode $ (hm k' (fc v) `asTypeOf` d)
+  d    = hashAlg st undefined
+  k    = key st
+  v    = value st
+  k'   = encode $ (hm k (L.concat [fc v, L.singleton 0, input]) `asTypeOf` d)
+  v'   = encode $ (hm k' (fc v) `asTypeOf` d)
   (newK, newV) =
     if L.length input == 0
       then (k',v')

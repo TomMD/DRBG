@@ -1,12 +1,10 @@
 {-# LANGUAGE EmptyDataDecls, MultiParamTypeClasses #-}
 import qualified Crypto.Random.DRBG.Hash as H
 import qualified Crypto.Random.DRBG.HMAC as M
+import qualified Crypto.Random.DRBG.CTR as CTR
 import Crypto.Random.DRBG
-import Crypto.Hash.SHA1
-import Crypto.Hash.SHA224
-import Crypto.Hash.SHA256
-import Crypto.Hash.SHA384
-import Crypto.Hash.SHA512
+import Crypto.Hash.CryptoAPI
+import Crypto.Cipher.AES128
 import qualified Data.ByteString as B
 import Crypto.Classes
 import Data.Serialize as Ser
@@ -22,7 +20,7 @@ import Crypto.Types
 import Data.Bits (xor)
 import Data.Tagged
 import Data.Proxy
-import Data.Maybe (maybeToList)
+import Data.Maybe (maybeToList, isNothing)
 import Data.List (deleteBy, isPrefixOf)
 import Test.Crypto
 import Test.ParseNistKATs
@@ -35,119 +33,170 @@ import Test.Framework.Providers.HUnit (testCase)
 main = do
   h <- nistTests_HMAC
   s <- nistTests_Hash
-  defaultMain (h ++ s)
+  c <- nistTests_CTR
+  defaultMain (s ++ h ++ c)
+
+nistTests_CTR :: IO [Test]
+nistTests_CTR = do
+    contents <- getDataFileName "Test/CTR_DRBG.txt" >>= readFile
+    let cats = parseCategories "COUNT" contents
+    return (concatMap categoryToTest_CTR cats)
+
+categoryToTest_CTR :: TestCategory -> [Test]
+categoryToTest_CTR (props, ts)
+   | isNothing (lookup "AES-128 no df" props) = []
+   | otherwise = concatMap (maybeToList . parse1) ts
+  where
+  testName :: String
+  testName = fst (head props) ++ (if isPR props then "_PR" else "")
+  parse1 :: NistTest -> Maybe Test
+  parse1 t
+    | Just "True" == lookup "PredictionResistance" props = do
+        cnt <- lookup "COUNT" t
+        let name = testName ++ "-" ++ cnt
+        eIn <- lookup "EntropyInput" t
+        _n   <- lookup "Nonce" t
+        per <- lookup "PersonalizationString" t
+        aIn1   <- lookup "AdditionalInput" t
+        eInPR1 <- lookup "EntropyInputPR" t
+        let t' = deleteF "EntropyInputPR" (deleteF "AdditionalInput" t)
+        aIn2   <- lookup "AdditionalInput" t'
+        eInPR2 <- lookup "EntropyInputPR" t'
+        ret    <- lookup "ReturnedBits" t'
+        let f =
+                let hx   = hexStringToBS
+                    Just st0  = CTR.instantiate (hx eIn) (hx per) :: Maybe (CTR.State AESKey)
+                    Just st1  = CTR.reseed st0 (hx eInPR1) (hx aIn1)
+                    Just (_,st2) = CTR.generate st1 olen B.empty
+                    Just st3 = CTR.reseed st2 (hx eInPR2) (hx aIn2)
+                    Just (r1,_) = CTR.generate st3 olen B.empty
+                    olen = 16 -- FIXME hard coded length for AES
+                in r1
+        return (testCase name $ assertEqual name (hexStringToBS ret) f)
+    | otherwise = do
+        cnt <- lookup "COUNT" t
+        let name = testName ++ "-" ++ cnt
+        eIn   <- lookup "EntropyInput" t
+        n     <- lookup "Nonce" t
+        per   <- lookup "PersonalizationString" t
+        aIn1  <- lookup "AdditionalInput" t
+        eInRS <- lookup "EntropyInputReseed" t
+        aInRS <- lookup "AdditionalInputReseed" t
+        let t' = deleteF "AdditionalInput" t
+        aIn2  <- lookup "AdditionalInput" t'
+        ret   <- lookup "ReturnedBits" t
+        let f =
+                let hx = hexStringToBS
+                    Just st0 = CTR.instantiate (hx eIn) (hx per) :: Maybe (CTR.State AESKey)
+                    Just (_,st1) = CTR.generate st0 olen (hx aIn1)
+                    Just st2 = CTR.reseed st1 (hx eInRS) (hx aInRS)
+                    Just (r1, _) = CTR.generate st2 olen (hx aIn2)
+                    olen = 16 -- FIXME hard coded length for AES
+                in r1
+        return (testCase name $ assertEqual name (hexStringToBS ret) f)
+
+
 
 -- Test the SHA-256 HMACs (other hash implementations will be tested once crypthash uses the crypto-api classes)
 nistTests_HMAC :: IO [Test]
 nistTests_HMAC = do
-	contents <-  getDataFileName "Test/HMAC_DRBG.txt" >>= readFile
-	let cats = parseCategories "COUNT" contents
-	return (concat $ concatMap (maybeToList . categoryToTest_HMAC) cats)
+    contents <-  getDataFileName "Test/HMAC_DRBG.txt" >>= readFile
+    let cats = parseCategories "COUNT" contents
+    return (concatMap categoryToTest_HMAC cats)
 
 -- Currently run SHA-256 tests only
-categoryToTest_HMAC :: TestCategory -> Maybe [Test]
+categoryToTest_HMAC :: TestCategory -> [Test]
 categoryToTest_HMAC (props, ts) =
-	let p =
-	      case shaNumber props of
-		Just 1   -> let p = Proxy :: Proxy SHA1   in build p
-		Just 224 -> let p = Proxy :: Proxy SHA224 in build p
-		Just 256 -> let p = Proxy :: Proxy SHA256 in build p
-		Just 384 -> let p = Proxy :: Proxy SHA384 in build p
-		Just 512 -> let p = Proxy :: Proxy SHA512 in build p
-		_ -> error $ "Unrecognized Hash when building HMAC tests" ++ (show props)
-	in case p of
-		Nothing -> Nothing
-		Just b  ->
-		     let s = unlines $ map showProp props 
-			 h = hashFunc (undefined :: SHA256)
-			 tests = concatMap (maybeToList . b) ts
-		     in Just tests
+        let p =
+              case shaNumber props of
+                Just 1   -> let p = Proxy :: Proxy SHA1   in build p
+                Just 224 -> let p = Proxy :: Proxy SHA224 in build p
+                Just 256 -> let p = Proxy :: Proxy SHA256 in build p
+                Just 384 -> let p = Proxy :: Proxy SHA384 in build p
+                Just 512 -> let p = Proxy :: Proxy SHA512 in build p
+                _ -> error $ "Unrecognized Hash when building HMAC tests" ++ (show props)
+        in concatMap (maybeToList . p) ts
   where
-  deleteF k lst = deleteBy (const $ (==) k . fst) undefined lst
-  isPR = Just True == fmap read (lookup "PredictionResistance" props)
   showProp (p,"") = '[' : p ++ "]"
   showProp (p,v)  = '[' : p ++ " = " ++ v ++ "]"
-  testName = fst (head props) ++ (if isPR then "_PR" else "")
-  build :: Hash c s => Proxy s -> Maybe ([Record] -> Maybe Test)
-  build = Just . buildKAT . proxyToHMACState
+  testName = fst (head props) ++ (if isPR props then "_PR" else "")
+  build :: Hash c s => Proxy s -> ([Record] -> Maybe Test)
+  build = buildKAT . proxyToHMACState
   -- buildKAT :: Proxy (M.State a) -> [Record] -> Maybe Test
   buildKAT p t
-	| fmap read (lookup "PredictionResistance" props) == Just True = do
-	cnt    <- lookup "COUNT" t
-	let name = testName ++ "-" ++ cnt
-	eIn    <- lookup "EntropyInput" t
-	n      <- lookup "Nonce" t
-	per    <- lookup "PersonalizationString" t
-	aIn1   <- lookup "AdditionalInput" t
-	eInPR1 <- lookup "EntropyInputPR" t
-	let t' = deleteF "EntropyInputPR" (deleteF "AdditionalInput" t)
-	aIn2   <- lookup "AdditionalInput" t'
-	eInPR2 <- lookup "EntropyInputPR" t'
-	ret    <- lookup "ReturnedBits" t'
-	let f =
-		let olen = proxy outputLength (proxyUnwrapHMACState p)
-		    hx = hexStringToBS
-		    st0 = M.instantiate (hx eIn) (hx n) (hx per)
-		    st1 = M.reseed st0 (hx eInPR1) (hx aIn1) `asProxyTypeOf` p
-		    Just (_,st2) = M.generate st1 olen B.empty
-		    st3 = M.reseed st2 (hx eInPR2) (hx aIn2)
-		    Just (r1,_) = M.generate st3 olen B.empty
-		in r1
-	return (testCase name $ assertEqual name f (hexStringToBS ret))
-	| otherwise = do
-	cnt <- lookup "COUNT" t
-	let name = testName ++ "-" ++ cnt
-	eIn   <- lookup "EntropyInput" t
-	n     <- lookup "Nonce" t
-	per   <- lookup "PersonalizationString" t
-	aIn1  <- lookup "AdditionalInput" t
-	eInRS <- lookup "EntropyInputReseed" t
-	aInRS <- lookup "AdditionalInputReseed" t
-	let t' = deleteF "AdditionalInput" t
-	aIn2  <- lookup "AdditionalInput" t'
-	ret   <- lookup "ReturnedBits" t
-	let f =
-		let olen = proxy outputLength (proxyUnwrapHMACState p)
-		    hx = hexStringToBS
-		    st0 = M.instantiate (hx eIn) (hx n) (hx per) `asProxyTypeOf` p
-		    Just (_,st1) = M.generate st0 olen (hx aIn1)
-		    st2 = M.reseed st1 (hx eInRS) (hx aInRS)
-		    Just (r1, _) = M.generate st2 olen (hx aIn2)
-		in r1
-	return (testCase name $ assertEqual name (hexStringToBS ret) f)
+     | fmap read (lookup "PredictionResistance" props) == Just True = do
+        cnt    <- lookup "COUNT" t
+        let name = testName ++ "-" ++ cnt
+        eIn    <- lookup "EntropyInput" t
+        n      <- lookup "Nonce" t
+        per    <- lookup "PersonalizationString" t
+        aIn1   <- lookup "AdditionalInput" t
+        eInPR1 <- lookup "EntropyInputPR" t
+        let t' = deleteF "EntropyInputPR" (deleteF "AdditionalInput" t)
+        aIn2   <- lookup "AdditionalInput" t'
+        eInPR2 <- lookup "EntropyInputPR" t'
+        ret    <- lookup "ReturnedBits" t'
+        let f =
+                let olen = proxy outputLength (proxyUnwrapHMACState p)
+                    hx = hexStringToBS
+                    st0 = M.instantiate (hx eIn) (hx n) (hx per)
+                    st1 = M.reseed st0 (hx eInPR1) (hx aIn1) `asProxyTypeOf` p
+                    Just (_,st2) = M.generate st1 olen B.empty
+                    st3 = M.reseed st2 (hx eInPR2) (hx aIn2)
+                    Just (r1,_) = M.generate st3 olen B.empty
+                in r1
+        return (testCase name $ assertEqual name f (hexStringToBS ret))
+     | otherwise = do
+        cnt <- lookup "COUNT" t
+        let name = testName ++ "-" ++ cnt
+        eIn   <- lookup "EntropyInput" t
+        n     <- lookup "Nonce" t
+        per   <- lookup "PersonalizationString" t
+        aIn1  <- lookup "AdditionalInput" t
+        eInRS <- lookup "EntropyInputReseed" t
+        aInRS <- lookup "AdditionalInputReseed" t
+        let t' = deleteF "AdditionalInput" t
+        aIn2  <- lookup "AdditionalInput" t'
+        ret   <- lookup "ReturnedBits" t
+        let f =
+                let olen = proxy outputLength (proxyUnwrapHMACState p)
+                    hx = hexStringToBS
+                    st0 = M.instantiate (hx eIn) (hx n) (hx per) `asProxyTypeOf` p
+                    Just (_,st1) = M.generate st0 olen (hx aIn1)
+                    st2 = M.reseed st1 (hx eInRS) (hx aInRS)
+                    Just (r1, _) = M.generate st2 olen (hx aIn2)
+                in r1
+        return (testCase name $ assertEqual name (hexStringToBS ret) f)
 
 nistTests_Hash :: IO [Test]
 nistTests_Hash = do
-	contents <- getDataFileName "Test/Hash_DRBG.txt" >>= readFile
-	let cats = parseCategories "COUNT" contents
-	return (concat $ concatMap (maybeToList . categoryToTest_Hash) cats)
+        contents <- getDataFileName "Test/Hash_DRBG.txt" >>= readFile
+        let cats = parseCategories "COUNT" contents
+        return (concatMap categoryToTest_Hash cats)
 
-categoryToTest_Hash :: TestCategory -> Maybe [Test]
-categoryToTest_Hash (props, ts) =
-	let p =
-	      case shaNumber props of
-		Just 1   -> let p = Proxy :: Proxy SHA1   in build p
-		Just 224 -> let p = Proxy :: Proxy SHA224 in build p
-		Just 256 -> let p = Proxy :: Proxy SHA256 in build p
-		Just 384 -> let p = Proxy :: Proxy SHA384 in build p
-		Just 512 -> let p = Proxy :: Proxy SHA512 in build p
-		_ -> error $ "Unrecognized hash when building Hash DRBG test" ++ (show props)
-	in case p of
-		Nothing -> Nothing
-		Just b  -> Just $ concatMap (maybeToList . b) ts
+categoryToTest_Hash :: TestCategory -> [Test]
+categoryToTest_Hash (props, ts)
+   | otherwise =
+        let p =
+              case shaNumber props of
+                Just 1   -> let p = Proxy :: Proxy SHA1   in build p
+                Just 224 -> let p = Proxy :: Proxy SHA224 in build p
+                Just 256 -> let p = Proxy :: Proxy SHA256 in build p
+                Just 384 -> let p = Proxy :: Proxy SHA384 in build p
+                Just 512 -> let p = Proxy :: Proxy SHA512 in build p
+                _ -> error $ "Unrecognized hash when building Hash DRBG test" ++ (show props)
+        in concatMap (maybeToList . p) ts
   where
-  deleteF k lst = deleteBy (const $ (==) k . fst) undefined lst
-  isPR = Just True == fmap read (lookup "PredictionResistance" props)
-  testName = fst (head props) ++ (if isPR then "_PR" else "")
-  build :: (Hash c s, H.SeedLength s) => Proxy s -> Maybe ([Record] -> Maybe Test)
-  build = Just . buildKAT . proxyToHashState
+  testName = fst (head props) ++ (if isPR props then "_PR" else "")
+  build :: (Hash c s, H.SeedLength s) => Proxy s -> ([Record] -> Maybe Test)
+  build = buildKAT . proxyToHashState
   buildKAT p t
-	| isPR = do
-	cnt <- lookup "COUNT" t
-	let name = testName ++ "-" ++ cnt
-	eIn <- lookup "EntropyInput" t
-	n   <- lookup "Nonce" t
-	per <- lookup "PersonalizationString" t
+     | isPR props = do
+        cnt <- lookup "COUNT" t
+        let name = testName ++ "-" ++ cnt
+        eIn <- lookup "EntropyInput" t
+        n   <- lookup "Nonce" t
+        per <- lookup "PersonalizationString" t
         aIn1   <- lookup "AdditionalInput" t
         eInPR1 <- lookup "EntropyInputPR" t
         let t' = deleteF "EntropyInputPR" (deleteF "AdditionalInput" t)
@@ -156,7 +205,7 @@ categoryToTest_Hash (props, ts) =
         ret    <- lookup "ReturnedBits" t'
         let f =
                 let olen = proxy outputLength (proxyUnwrapHashState p)
-		    hx = hexStringToBS
+                    hx = hexStringToBS
                     st0 = H.instantiate (hx eIn) (hx n) (hx per) `asProxyTypeOf` p
                     st1 = H.reseed st0 (hx eInPR1) (hx aIn1)
                     Just (_,st2) = H.generate st1 olen B.empty
@@ -164,8 +213,7 @@ categoryToTest_Hash (props, ts) =
                     Just (r1,_) = H.generate st3 olen B.empty
                 in r1
         return (testCase name $ assertEqual name (hexStringToBS ret) f)
-  buildKAT p t
-	| otherwise = do
+     | otherwise = do
         cnt <- lookup "COUNT" t
         let name = testName ++ "-" ++ cnt
         eIn   <- lookup "EntropyInput" t
@@ -179,7 +227,7 @@ categoryToTest_Hash (props, ts) =
         ret   <- lookup "ReturnedBits" t
         let f =
                 let olen = proxy outputLength (proxyUnwrapHashState p)
-		    hx = hexStringToBS
+                    hx = hexStringToBS
                     st0 = H.instantiate (hx eIn) (hx n) (hx per) `asProxyTypeOf` p
                     Just (_,st1) = H.generate st0 olen (hx aIn1)
                     st2 = H.reseed st1 (hx eInRS) (hx aInRS)
@@ -207,6 +255,9 @@ proxyToHashState _ = Proxy
 
 shaNumber :: Properties -> Maybe Int
 shaNumber ps =
-	case filter ("SHA-" `isPrefixOf`) (map fst ps) of
-		[s] -> Just $ read (drop 4 s)
-		[]  -> Nothing
+        case filter ("SHA-" `isPrefixOf`) (map fst ps) of
+                [s] -> Just $ read (drop 4 s)
+                []  -> Nothing
+
+deleteF k lst = deleteBy (const $ (==) k . fst) undefined lst
+isPR props = Just True == fmap read (lookup "PredictionResistance" props)
