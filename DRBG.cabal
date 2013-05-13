@@ -50,8 +50,9 @@ Executable drbg_test
                    , HUnit
                    , test-framework
                    , test-framework-hunit
+                   , cipher-aes
   other-modules: Paths_DRBG
 
 source-repository head
   type:         git
-  location:     https://github.com/TomMD/cipher-aes128
+  location:     https://github.com/TomMD/DRBG

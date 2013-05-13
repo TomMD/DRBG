@@ -4,7 +4,6 @@ import qualified Crypto.Random.DRBG.HMAC as M
 import qualified Crypto.Random.DRBG.CTR as CTR
 import Crypto.Random.DRBG
 import Crypto.Hash.CryptoAPI
-import Crypto.Cipher.AES128
 import qualified Data.ByteString as B
 import Crypto.Classes
 import Data.Serialize as Ser
@@ -16,7 +15,6 @@ import qualified Data.ByteString.Lazy.Char8 as L
 import qualified Data.ByteString.Lazy as LN
 import Data.Bits (shiftR, shiftL)
 import Crypto.HMAC
-import Crypto.Types
 import Data.Bits (xor)
 import Data.Tagged
 import Data.Proxy
@@ -30,11 +28,15 @@ import Test.Framework
 import Test.HUnit.Base (assertEqual)
 import Test.Framework.Providers.HUnit (testCase)
 
+import Debug.Trace
+
+import Crypto.Cipher.AES128
+
 main = do
   h <- nistTests_HMAC
   s <- nistTests_Hash
   c <- nistTests_CTR
-  defaultMain (s ++ h ++ c)
+  defaultMain c -- (c ++ s ++ h)
 
 nistTests_CTR :: IO [Test]
 nistTests_CTR = do
@@ -64,13 +66,13 @@ categoryToTest_CTR (props, ts)
         eInPR2 <- lookup "EntropyInputPR" t'
         ret    <- lookup "ReturnedBits" t'
         let f =
-                let hx   = hexStringToBS
+                let hx        = hexStringToBS
                     Just st0  = CTR.instantiate (hx eIn) (hx per) :: Maybe (CTR.State AESKey)
                     Just st1  = CTR.reseed st0 (hx eInPR1) (hx aIn1)
                     Just (_,st2) = CTR.generate st1 olen B.empty
                     Just st3 = CTR.reseed st2 (hx eInPR2) (hx aIn2)
-                    Just (r1,_) = CTR.generate st3 olen B.empty
-                    olen = 16 -- FIXME hard coded length for AES
+                    Just (r1,_st4) = CTR.generate st3 olen B.empty
+                    olen = B.length (hx ret)
                 in r1
         return (testCase name $ assertEqual name (hexStringToBS ret) f)
     | otherwise = do
@@ -87,11 +89,11 @@ categoryToTest_CTR (props, ts)
         ret   <- lookup "ReturnedBits" t
         let f =
                 let hx = hexStringToBS
-                    Just st0 = CTR.instantiate (hx eIn) (hx per) :: Maybe (CTR.State AESKey)
+                    Just st0     = CTR.instantiate (hx eIn) (hx per) :: Maybe (CTR.State AESKey)
                     Just (_,st1) = CTR.generate st0 olen (hx aIn1)
-                    Just st2 = CTR.reseed st1 (hx eInRS) (hx aInRS)
+                    Just st2     = CTR.reseed st1 (hx eInRS) (hx aInRS)
                     Just (r1, _) = CTR.generate st2 olen (hx aIn2)
-                    olen = 16 -- FIXME hard coded length for AES
+                    olen         = B.length (hx ret)
                 in r1
         return (testCase name $ assertEqual name (hexStringToBS ret) f)
 

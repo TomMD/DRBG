@@ -34,17 +34,19 @@ update provided_data st
     | B.length provided_data < seedLen = Nothing
     | otherwise =
         let (temp,_) = ctr (key st) (value st) (B.replicate seedLen 0)
-            (keyBytes,valBytes) = B.splitAt (keyLengthBytes `for` key st) (zwp' temp provided_data)
+            (keyBytes,valBytes) = B.splitAt keyLen (zwp' temp provided_data)
             newValue = IV valBytes
             newKey   = buildKey keyBytes
         in St (counter st) newValue `fmap` newKey
   where
-    seedLen = (blockSizeBytes `for` key st) + (keyLengthBytes `for` key st)
+    keyLen  = keyLengthBytes `for` key st
+    blkLen  = blockSizeBytes `for` key st
+    seedLen = keyLen + blkLen
 {-# INLINEABLE update #-}
 
 -- | Instantiate a new CTR based counter.  This assumes the block cipher is
--- safe for generating 2^48 seperate bitstrings (e.g. For SP800-90 this assumes
--- this is AES and not 3DES)
+-- safe for generating 2^48 seperate bitstrings (e.g. For SP800-90 we
+-- assume AES and not 3DES)
 instantiate :: BlockCipher a => Entropy -> PersonalizationString -> Maybe (State a)
 instantiate ent perStr = st
   where
@@ -57,8 +59,6 @@ instantiate ent perStr = st
   v0        = IV (B.replicate blockLen 0)
   st        = do k <- key0
                  update seedMat (St 1 v0 k)
-  -- asStateProxyTypeOf :: State s -> Proxy s -> State s
-  asStateProxyTypeOf = const
 {-# INLINABLE instantiate #-}
 
 keyOfState :: Maybe (State a) -> a
@@ -71,7 +71,8 @@ keyOfState = const undefined
 reseed :: BlockCipher a => State a -> Entropy -> AdditionalInput -> Maybe (State a)
 reseed st0 ent ai = st1
   where
-  seedLen = (blockSizeBytes `for` key st0) + (keyLengthBytes `for` key st0)
+  seedLen = (blockSizeBytes `for` key st0) +
+            (keyLengthBytes `for` key st0)
   newAI   = B.take seedLen (B.append ai (B.replicate seedLen 0))
   seedMat = zwp' ent newAI
   st1     = update seedMat (st0 { counter = 1} )
@@ -83,13 +84,16 @@ generate st0 len ai0
   | counter st0 > reseedInterval = Nothing
   | not (B.null ai0) =
       let aiNew = (B.take seedLen (B.append ai0 (B.replicate seedLen 0)))
-      in join $ fmap (\new -> go new aiNew) (update aiNew st0)
+      in do st' <- update aiNew st0
+            go st' aiNew
   | otherwise = go st0 (B.replicate seedLen 0)
   where
   outLen  = (blockSizeBytes `for` key st0)
   keyLen  = (keyLengthBytes `for` key st0)
   seedLen = outLen + keyLen
-  -- go :: BlockCipher a => State a -> AdditionalInput -> Maybe (RandomBits, State a)
+  -- go :: BlockCipher a => State a
+  --                     -> AdditionalInput
+  --                     -> Maybe (RandomBits, State a)
   go st ai =
       let (temp,v2) = ctr (key st) (value st) (B.replicate len 0)
           st1       = update ai (st { value = v2
