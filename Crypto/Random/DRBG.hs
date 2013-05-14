@@ -479,7 +479,8 @@ instance BlockCipher x => CryptoRandomGen (CtrDRBGWith x) where
                 in k + b
         in rt keyLengthBytes blockSizeBytes
 
-  -- If this is called for less than blockSize data 
+  -- Generates req bytes (even if that is over the 2^16 bytes allowed by
+  -- the NIST standard!)
   genBytes req st =
       case CTR.generate st req B.empty of
             Nothing       -> Left NeedReseed
