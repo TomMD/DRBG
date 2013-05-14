@@ -58,10 +58,8 @@ nested).
 module Crypto.Random.DRBG
         (
         -- * Basic Hash-based Generators
-          HmacDRBG, HashDRBG
-        , HmacDRBGWith, HashDRBGWith
-        -- * Basic Cipher-based Generator
-        , GenAES, GenCounter
+          HmacDRBG, HashDRBG, CtrDRBG
+        , HmacDRBGWith, HashDRBGWith, CtrDRBGWith
         -- * CryptoRandomGen Transformers
         , GenXor
         , GenBuffered
@@ -118,11 +116,18 @@ type HmacDRBGWith = M.State
 -- of the underlying hash algorithm.
 type HashDRBGWith = H.State
 
+-- |The Hash DRBG state (of kind * -> *) allowing selection
+-- of the underlying cipher algorithm.
+type CtrDRBGWith = CTR.State
+
 -- |An alias for an HMAC DRBG generator using SHA512.
 type HmacDRBG = M.State SHA512
 
 -- |An Alias for a Hash DRBG generator using SHA512.
 type HashDRBG = H.State SHA512
+
+-- |An Alias for a Counter DRBG generator using AES 128.
+type CtrDRBG = CTR.State AESKey
 
 -- |@newGenAutoReseed bs i@ creates a new 'GenAutoReseed' with a custom interval
 -- of @i@ bytes using the provided entropy in @bs@.
@@ -380,7 +385,7 @@ newGenBuffered min max bs = do
         g <- newGen bs
         (rs,g') <- genBytes min g
         let new = wrapErr (genBytes min g') g'
-        (let !_ = rs in ()) `par` return (GenBuffered min max new rs)
+        rs `par` return (GenBuffered min max new rs)
 
 newGenBufferedIO :: CryptoRandomGen g => Int -> Int -> IO (GenBuffered g)
 newGenBufferedIO min max = do
@@ -388,12 +393,13 @@ newGenBufferedIO min max = do
         let !(Right !gBuf) = do
                 (rs,g') <- genBytes min g
                 let new = wrapErr (genBytes min g') g'
-                (let !_ = rs in ()) `par` return (GenBuffered min max new rs)
+                rs `par` return (GenBuffered min max new rs)
         return gBuf
 
 instance (CryptoRandomGen g) => CryptoRandomGen (GenBuffered g) where
         {-# SPECIALIZE instance CryptoRandomGen (GenBuffered HmacDRBG) #-}
         {-# SPECIALIZE instance CryptoRandomGen (GenBuffered HashDRBG) #-}
+        {-# SPECIALIZE instance CryptoRandomGen (GenBuffered CtrDRBG) #-}
         newGen = newGenBuffered bufferMinDef bufferMaxDef
         newGenIO = newGenBufferedIO bufferMinDef bufferMaxDef
         genSeedLength =
@@ -409,7 +415,14 @@ instance (CryptoRandomGen g) => CryptoRandomGen (GenBuffered g) where
                         case g of
                                 Left (err,_)  -> Left err
                                 Right g   -> Left (GenErrorOther "Buffering generator failed to buffer properly - unknown reason")
-                | req > B.length bs = Left RequestedTooManyBytes
+                | req > B.length bs =
+                    case g of
+                      Left (err,_) -> Left err
+                      Right (bo,g2)     ->
+                        case genBytes req g2 of
+                          Left err -> Left err
+                          Right (b,g3) ->
+                            Right (b, GenBuffered min max (Right (bo,g3)) bs)
                 | remSize < min =
                         case g of
                                 Left (err,_) -> Left err
@@ -443,14 +456,7 @@ eval :: Either x (B.ByteString, g) -> Either x (B.ByteString, g)
 eval (Left x) = Left x
 eval (Right (g,bs)) = bs `seq` (g `seq` (Right (g, bs)))
 
--- |A random number generator using AESKey in ctr mode.
-type GenAES = GenCounter AESKey
-
--- |@GenCounter k@ is a cryptographic BlockCipher with key @k@
--- being used in 'ctr' mode to generate random bytes.
-type GenCounter a = CTR.State a
-
-instance BlockCipher x => CryptoRandomGen (GenCounter x) where
+instance BlockCipher x => CryptoRandomGen (CtrDRBGWith x) where
   newGen bytes =
       case CTR.instantiate bytes B.empty of
         Nothing -> Left NotEnoughEntropy
@@ -466,7 +472,7 @@ instance BlockCipher x => CryptoRandomGen (GenCounter x) where
         Just st -> return st
 
   genSeedLength =
-        let rt :: Tagged x Int -> Tagged x Int -> Tagged (GenCounter x) Int
+        let rt :: Tagged x Int -> Tagged x Int -> Tagged (CtrDRBGWith x) Int
             rt x y = Tagged $ 
                 let k = unTagged x
                     b = unTagged y

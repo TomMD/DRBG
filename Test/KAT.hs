@@ -28,15 +28,13 @@ import Test.Framework
 import Test.HUnit.Base (assertEqual)
 import Test.Framework.Providers.HUnit (testCase)
 
-import Debug.Trace
-
 import Crypto.Cipher.AES128
 
 main = do
   h <- nistTests_HMAC
   s <- nistTests_Hash
   c <- nistTests_CTR
-  defaultMain c -- (c ++ s ++ h)
+  defaultMain (c ++ s ++ h)
 
 nistTests_CTR :: IO [Test]
 nistTests_CTR = do
