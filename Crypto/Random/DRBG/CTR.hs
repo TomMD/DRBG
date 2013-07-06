@@ -1,4 +1,4 @@
-{-# LANGUAGE TupleSections, BangPatterns #-}
+{-# LANGUAGE TupleSections #-}
 module Crypto.Random.DRBG.CTR
     ( State
     , getCounter
@@ -12,21 +12,27 @@ module Crypto.Random.DRBG.CTR
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as B
 import Crypto.Classes
+import Data.Serialize
 import Crypto.Types
 import Crypto.Random.DRBG.Types
-import Control.Monad (join)
 import Data.Word (Word64)
-import Data.Proxy
 
 data State a = St { counter     :: {-# UNPACK #-} !Word64
                   , value       :: !(IV a)
                   , key         :: a
                   }
 
+instance Serialize a => Serialize (State a) where
+    get = do c <- getWord64be
+             v <- get
+             k <- get
+             return $ St c (IV v) k
+    put (St c (IV v) k) = putWord64be c >> put v >> put k
+
 -- |Get a count of how many times this generator has been used since
 -- instantiation or reseed.
 getCounter :: State a -> Word64
-getCounter st = counter st
+getCounter = counter
 
 -- |Update the RNG
 update :: BlockCipher a => ByteString -> State a -> Maybe (State a)
@@ -83,13 +89,13 @@ generate :: BlockCipher a => State a -> ByteLength -> AdditionalInput -> Maybe (
 generate st0 len ai0
   | counter st0 > reseedInterval = Nothing
   | not (B.null ai0) =
-      let aiNew = (B.take seedLen (B.append ai0 (B.replicate seedLen 0)))
+      let aiNew = B.take seedLen (B.append ai0 (B.replicate seedLen 0))
       in do st' <- update aiNew st0
             go st' aiNew
   | otherwise = go st0 (B.replicate seedLen 0)
   where
-  outLen  = (blockSizeBytes `for` key st0)
-  keyLen  = (keyLengthBytes `for` key st0)
+  outLen  = blockSizeBytes `for` key st0
+  keyLen  = keyLengthBytes `for` key st0
   seedLen = outLen + keyLen
   -- go :: BlockCipher a => State a
   --                     -> AdditionalInput

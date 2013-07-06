@@ -77,20 +77,16 @@ import qualified Crypto.Random.DRBG.CTR  as CTR
 import Crypto.Util
 import Crypto.Classes
 import Crypto.Random
-import Crypto.Modes (zeroIV)
 import Crypto.Hash.CryptoAPI
 import Crypto.Cipher.AES128 (AESKey)
 import Crypto.Types
 import System.Entropy
 import qualified Data.ByteString as B
-import qualified Data.ByteString.Internal as BI
 import Data.Tagged
 import Data.Proxy
 import Data.Bits (xor)
 import Control.Parallel
-import Control.Monad (liftM)
 import Control.Monad.Error () -- Either instance
-import Data.Serialize (encode)
 import Data.Word
 
 instance H.SeedLength SHA512 where
@@ -377,6 +373,7 @@ instance (CryptoRandomGen a, CryptoRandomGen b) => CryptoRandomGen (GenXor a b) 
 -- maintain a buffer of random values size >= 1MB and <= 5MB at any time.
 data GenBuffered g = GenBuffered Int Int (Either (GenError, g) (B.ByteString, g)) {-# UNPACK #-} !B.ByteString
 
+bufferMinDef, bufferMaxDef :: Int
 bufferMinDef = 2^20
 bufferMaxDef = 2^22
 
