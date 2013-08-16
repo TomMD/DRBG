@@ -1,4 +1,4 @@
-{-# LANGUAGE EmptyDataDecls, FlexibleInstances, TypeSynonymInstances, BangPatterns, ScopedTypeVariables #-}
+{-# LANGUAGE FlexibleInstances, TypeSynonymInstances, BangPatterns, ScopedTypeVariables #-}
 {-|
  Maintainer: Thomas.DuBuisson@gmail.com
  Stability: beta
@@ -6,9 +6,9 @@
 
 This module is the convenience interface for the DRBG (NIST standardized
 number-theoretically secure random number generator).  Everything is setup
-for using the "crypto-api" 'CryptoRandomGen' type class.  
+for using the "crypto-api" 'CryptoRandomGen' type class.
 
-To instantiate the base types of 'HmacDRBG', 'HashDRBG', or 'GenAES' just use
+To instantiate the base types of 'HmacDRBG', 'HashDRBG', or 'CtrDRBG' just use
 the 'CryptoRandomGen' primitives of 'newGen' or 'newGenIO'.
 
 For example, to seed a new generator with the system secure random
@@ -83,8 +83,6 @@ import Crypto.Types
 import System.Entropy
 import qualified Data.ByteString as B
 import Data.Tagged
-import Data.Proxy
-import Data.Bits (xor)
 import Control.Parallel
 import Control.Monad.Error () -- Either instance
 import Data.Word
@@ -267,7 +265,7 @@ instance (CryptoRandomGen a, CryptoRandomGen b) => CryptoRandomGen (GenAutoResee
                                           return (GenAutoReseed rs 0 a' b')
                                         else return $ GenAutoReseed rs (cnt + fromIntegral req) aNew b
                           return (res, gNew)
-        genBytesWithEntropy req entropy (GenAutoReseed rs cnt a b) = do
+        genBytesWithEntropy req entropy (GenAutoReseed rs cnt a b) =
                 case genBytesWithEntropy req entropy a of
                         Left NeedReseed -> do
                                 (ent,b') <- genBytes (genSeedLength `for` a) b
@@ -304,7 +302,7 @@ instance (CryptoRandomGen a, CryptoRandomGen b) => CryptoRandomGen (GenAutoResee
                             else InXBytes (rs * b)
                 (_, InXBytes b) ->
                         let s = genSeedLength `for` ag
-                            nr = if s <= 0 then 1 else ((b `div` fromIntegral s) - 1)
+                            nr = if s <= 0 then 1 else (b `div` fromIntegral s) - 1
                         in InXBytes $ rs * nr
         reseedInfo (GenAutoReseed rs x ag bg) =
             -- Attempt to provide a lower bound on the next reseed
@@ -387,7 +385,7 @@ newGenBuffered min max bs = do
 newGenBufferedIO :: CryptoRandomGen g => Int -> Int -> IO (GenBuffered g)
 newGenBufferedIO min max = do
         g <- newGenIO
-        let !(Right !gBuf) = do
+        let (Right !gBuf) = do
                 (rs,g') <- genBytes min g
                 let new = wrapErr (genBytes min g') g'
                 rs `par` return (GenBuffered min max new rs)
@@ -406,7 +404,7 @@ instance (CryptoRandomGen g) => CryptoRandomGen (GenBuffered g) where
           where
           help :: Tagged (GenBuffered g) c -> g
           help = const undefined
-        genBytes req gb@(GenBuffered min max g bs)
+        genBytes req (GenBuffered min max g bs)
                 | remSize >= min =  Right (B.take req bs, GenBuffered min max g (B.drop req bs))
                 | B.length bs < min =
                         case g of
@@ -427,7 +425,7 @@ instance (CryptoRandomGen g) => CryptoRandomGen (GenBuffered g) where
                                         let new | B.length rnd > 0 = wrapErr (genBytes (max - (remSize + B.length rnd)) gen) gen
                                                 | otherwise = Right (B.empty,gen)
                                             (rs,rem) = B.splitAt req bs
-                                        in (eval new) `par` Right (rs, GenBuffered min max new (B.append rem rnd))
+                                        in eval new `par` Right (rs, GenBuffered min max new (B.append rem rnd))
                 | otherwise = Left $ GenErrorOther "Buffering generator hit an impossible case.  Please inform the Haskell crypto-api maintainer"
           where
           remSize = B.length bs - req
@@ -438,7 +436,7 @@ instance (CryptoRandomGen g) => CryptoRandomGen (GenBuffered g) where
                         Left (_,g') -> (B.empty, g')
                         Right (rs, g') -> (rs, g')
                 g'' <- reseed ent g'
-                let new = wrapErr (genBytes (min-B.length bs') g'') g''
+                let new = wrapErr (genBytes (min - B.length bs') g'') g''
                     bs' = B.take max (B.append bs rs)
                 return (GenBuffered min max new bs')
         reseedPeriod ~(GenBuffered _ _ g _) = reseedPeriod . either snd snd $ g
@@ -451,7 +449,7 @@ wrapErr (Right r) _ = Right r
 -- |Force evaluation for use by GenBuffered.
 eval :: Either x (B.ByteString, g) -> Either x (B.ByteString, g)
 eval (Left x) = Left x
-eval (Right (g,bs)) = bs `seq` (g `seq` (Right (g, bs)))
+eval (Right (g,bs)) = bs `seq` (g `seq` Right (g, bs))
 
 instance BlockCipher x => CryptoRandomGen (CtrDRBGWith x) where
   newGen bytes =
@@ -491,16 +489,3 @@ instance BlockCipher x => CryptoRandomGen (CtrDRBGWith x) where
   reseedPeriod _ = InXCalls CTR.reseedInterval
 
   reseedInfo st  = InXCalls (CTR.reseedInterval - CTR.getCounter st)
-
-asProxyStateTypeOf :: CTR.State a -> Proxy a -> CTR.State a
-asProxyStateTypeOf = const
-
-xorExtendBS a b = res
-   where
-   x = B.pack $ B.zipWith Data.Bits.xor a b
-   res | al /= bl = x
-       | otherwise = B.append x rem
-   al = B.length a
-   bl = B.length b
-   rem | bl > al = B.drop al b
-       | otherwise = B.drop bl a
