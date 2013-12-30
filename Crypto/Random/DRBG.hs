@@ -78,7 +78,7 @@ import Crypto.Util
 import Crypto.Classes
 import Crypto.Random
 import Crypto.Hash.CryptoAPI
-import Crypto.Cipher.AES128 (AESKey)
+import Crypto.Cipher.AES128 (AESKey128)
 import Crypto.Types
 import System.Entropy
 import qualified Data.ByteString as B
@@ -121,7 +121,7 @@ type HmacDRBG = M.State SHA512
 type HashDRBG = H.State SHA512
 
 -- |An Alias for a Counter DRBG generator using AES 128.
-type CtrDRBG = CTR.State AESKey
+type CtrDRBG = CTR.State AESKey128
 
 -- |@newGenAutoReseed bs i@ creates a new 'GenAutoReseed' with a custom interval
 -- of @i@ bytes using the provided entropy in @bs@.
@@ -285,12 +285,12 @@ genBytesWithEntropyAutoReseed req entropy gar@(GenAutoReseed rs cnt a b) =
              (a',b') <- a `reseedWith` b
              (res, aNew) <- genBytesWithEntropy req entropy a'
              return (res, GenAutoReseed rs 0 aNew b')
-     Left err -> Left err
      Left RequestedTooManyBytes -> do
        let reqSmall = 1 + (req `div` 2)
        (s1, gar1) <- genBytesWithEntropy reqSmall entropy gar
        (s2, gar2) <- genBytes reqSmall gar1
        return (B.take req (B.append s1 s2), gar2)
+     Left err -> Left err
      Right (res,aNew) -> do
        gNew <- if (cnt + fromIntegral req) > rs
                  then do
