@@ -1,4 +1,5 @@
 {-# LANGUAGE EmptyDataDecls, MultiParamTypeClasses #-}
+{-# LANGUAGE PackageImports #-}
 import qualified Crypto.Random.DRBG.Hash as H
 import qualified Crypto.Random.DRBG.HMAC as M
 import qualified Crypto.Random.DRBG.CTR as CTR
@@ -94,8 +95,6 @@ categoryToTest_CTR (props, ts)
                     olen         = B.length (hx ret)
                 in r1
         return (testCase name $ assertEqual name (hexStringToBS ret) f)
-
-
 
 -- Test the SHA-256 HMACs (other hash implementations will be tested once crypthash uses the crypto-api classes)
 nistTests_HMAC :: IO [Test]

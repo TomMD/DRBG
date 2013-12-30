@@ -143,7 +143,7 @@ newGenAutoReseed bs rsInterval=
         let (b1,b2) = B.splitAt (genSeedLength `for` fromRight g1) bs
             g1 = newGen b1
             g2 = newGen b2
-            fromRight (Right x) = x
+            fromRight ~(Right x) = x
         in case (g1, g2) of
                 (Right a, Right b) -> Right $ GenAutoReseed rsInterval 0 a b
                 (Left e, _) -> Left e
@@ -235,52 +235,84 @@ helper2 = const undefined
 -- @2^15 * (2^b / a')@ bytes.  For the common values of @a' = 128@ and @2^b = 2^48@ this
 -- means reseeding every 2^56 byte.  For the example numbers this translates to
 -- about 200 years of continually generating random values at a rate of 10MB/s.
-data GenAutoReseed a b = GenAutoReseed {-# UNPACK #-} !Word64 {-# UNPACK #-} !Word64 !a !b
+data GenAutoReseed a b = GenAutoReseed
+        { garInterval  :: {-# UNPACK #-} !Word64
+        , garCounter   :: {-# UNPACK #-} !Word64
+        , garPrimeGen  :: !a
+        , garBackupGen :: !b
+        }
+
+genBytesAutoReseed :: (CryptoRandomGen a, CryptoRandomGen b)
+                   => ByteLength
+                   -> GenAutoReseed a b
+                   -> Either GenError (B.ByteString, GenAutoReseed a b)
+genBytesAutoReseed req gar@(GenAutoReseed rs cnt a b) =
+    case genBytes req a of
+       Left NeedReseed -> do
+               (a',b') <- a `reseedWith` b
+               (res, aNew) <- genBytes req a'
+               return (res,GenAutoReseed rs 0 aNew b')
+       Left RequestedTooManyBytes -> do
+         let reqSmall = 1 + (req `div` 2)
+         (s1, gar1) <- genBytes reqSmall gar
+         (s2, gar2) <- genBytes reqSmall gar1
+         return (B.take req (B.append s1 s2), gar2)
+       Left err -> Left err
+       Right (res,aNew) -> do
+         gNew <- if (cnt + fromIntegral req) > rs
+                   then do
+                     (a',b') <- a `reseedWith` b
+                     return (GenAutoReseed rs 0 a' b')
+                   else return $ GenAutoReseed rs (cnt + fromIntegral req) aNew b
+         return (res, gNew)
+
+reseedWith :: (CryptoRandomGen a, CryptoRandomGen b)
+         => a -> b -> Either GenError (a,b)
+reseedWith x y = do
+     (ent,y2) <- genBytes (genSeedLength `for` x) y
+     x2 <- reseed ent x
+     return (x2,y2)
+
+genBytesWithEntropyAutoReseed
+        :: (CryptoRandomGen a, CryptoRandomGen b)
+        => ByteLength
+        -> B.ByteString
+        -> GenAutoReseed a b
+        -> Either GenError (B.ByteString, GenAutoReseed a b)
+genBytesWithEntropyAutoReseed req entropy gar@(GenAutoReseed rs cnt a b) =
+   case genBytesWithEntropy req entropy a of
+     Left NeedReseed -> do
+             (a',b') <- a `reseedWith` b
+             (res, aNew) <- genBytesWithEntropy req entropy a'
+             return (res, GenAutoReseed rs 0 aNew b')
+     Left err -> Left err
+     Left RequestedTooManyBytes -> do
+       let reqSmall = 1 + (req `div` 2)
+       (s1, gar1) <- genBytesWithEntropy reqSmall entropy gar
+       (s2, gar2) <- genBytes reqSmall gar1
+       return (B.take req (B.append s1 s2), gar2)
+     Right (res,aNew) -> do
+       gNew <- if (cnt + fromIntegral req) > rs
+                 then do
+                   (a',b') <- a `reseedWith` b
+                   return (GenAutoReseed rs 0 a' b')
+                 else return $ GenAutoReseed rs (cnt + fromIntegral req) aNew b
+       return (res, gNew)
 
 instance (CryptoRandomGen a, CryptoRandomGen b) => CryptoRandomGen (GenAutoReseed a b) where
         {-# SPECIALIZE instance CryptoRandomGen (GenAutoReseed HmacDRBG HmacDRBG) #-}
         {-# SPECIALIZE instance CryptoRandomGen (GenAutoReseed HashDRBG HashDRBG) #-}
         {-# SPECIALIZE instance CryptoRandomGen (GenAutoReseed HashDRBG HmacDRBG) #-}
         {-# SPECIALIZE instance CryptoRandomGen (GenAutoReseed HmacDRBG HashDRBG) #-}
-        newGen bs = newGenAutoReseed bs (2^15)
-        newGenIO  = newGenAutoReseedIO (2^15)
+        newGen bs = newGenAutoReseed bs (2^(19::Int))
+        newGenIO  = newGenAutoReseedIO (2^(19::Int))
         genSeedLength =
-                let a = helper1 res
-                    b = helper2 res
-                    res = Tagged $ genSeedLength `for` a + genSeedLength `for` b
-                in res
-        genBytes req (GenAutoReseed rs cnt a b) =
-                case genBytes req a of
-                        Left NeedReseed -> do
-                                (ent,b') <- genBytes (genSeedLength `for` a) b
-                                a' <- reseed ent a
-                                (res, aNew) <- genBytes req a'
-                                return (res,GenAutoReseed rs 0 aNew b')
-                        Left err -> Left err
-                        Right (res,aNew) -> do
-                          gNew <- if (cnt + fromIntegral req) > rs
-                                        then do 
-                                          (ent,b') <- genBytes (genSeedLength `for` a) b
-                                          a'  <- reseed ent aNew
-                                          return (GenAutoReseed rs 0 a' b')
-                                        else return $ GenAutoReseed rs (cnt + fromIntegral req) aNew b
-                          return (res, gNew)
-        genBytesWithEntropy req entropy (GenAutoReseed rs cnt a b) =
-                case genBytesWithEntropy req entropy a of
-                        Left NeedReseed -> do
-                                (ent,b') <- genBytes (genSeedLength `for` a) b
-                                a' <- reseed ent a
-                                (res, aNew) <- genBytesWithEntropy req entropy a'
-                                return (res, GenAutoReseed rs 0 aNew b')
-                        Left err -> Left err
-                        Right (res,aNew) -> do
-                          gNew <- if (cnt + fromIntegral req) > rs
-                                        then do 
-                                          (ent,b') <- genBytes (genSeedLength `for` a) b
-                                          a'  <- reseed ent aNew
-                                          return (GenAutoReseed rs 0 a' b')
-                                        else return $ GenAutoReseed rs (cnt + fromIntegral req) aNew b
-                          return (res, gNew)
+           let a = helper1 res
+               b = helper2 res
+               res = Tagged $ genSeedLength `for` a + genSeedLength `for` b
+           in res
+        genBytes = genBytesAutoReseed
+        genBytesWithEntropy = genBytesWithEntropyAutoReseed
         reseed ent gen@(GenAutoReseed rs _ a b) 
           | genSeedLength `for` gen > B.length ent = Left NotEnoughEntropy
           | otherwise = do
@@ -291,34 +323,36 @@ instance (CryptoRandomGen a, CryptoRandomGen b) => CryptoRandomGen (GenAutoResee
                         else return b
                 return $ GenAutoReseed rs 0 a' b'
         reseedPeriod ~(GenAutoReseed rs _ ag bg) =
-            case (reseedPeriod ag, reseedPeriod bg) of
-                (Never, _) -> Never
-                (_, Never) -> Never
-                (NotSoon, _) -> NotSoon
-                (_, NotSoon) -> NotSoon
-                (_, InXCalls b) ->
-                        if fromIntegral rs * fromIntegral b > fromIntegral (maxBound `asTypeOf` b)
-                            then NotSoon
-                            else InXBytes (rs * b)
-                (_, InXBytes b) ->
-                        let s = genSeedLength `for` ag
-                            nr = if s <= 0 then 1 else (b `div` fromIntegral s) - 1
-                        in InXBytes $ rs * nr
+          case (reseedPeriod ag, reseedPeriod bg) of
+            (Never, _) -> Never
+            (_, Never) -> Never
+            (NotSoon, _) -> NotSoon
+            (_, NotSoon) -> NotSoon
+            (_, InXCalls b) ->
+                 if fromIntegral rs * fromIntegral b >
+                    fromIntegral (maxBound `asTypeOf` b)
+                     then NotSoon
+                     else InXBytes (rs * b)
+            (_, InXBytes b) ->
+                 let s = genSeedLength `for` ag
+                     nr = if s <= 0 then 1 else (b `div` fromIntegral s) - 1
+                 in InXBytes $ rs * nr
         reseedInfo (GenAutoReseed rs x ag bg) =
-            -- Attempt to provide a lower bound on the next reseed
-            case (reseedInfo ag, reseedInfo bg) of
-                    (NotSoon, _) -> NotSoon
-                    (_, NotSoon) -> NotSoon
-                    (Never, _)  -> Never
-                    (_, Never)  -> Never
-                    (_, InXBytes b) ->
-                        let s = genSeedLength `for` ag
-                            nr = if s <= 0 then 1 else ((b `div` fromIntegral s) - 1)
-                        in InXBytes $ rs - x + rs * nr
-                    (_, InXCalls b) -> 
-                        if fromIntegral rs * fromIntegral b > fromIntegral (maxBound `asTypeOf` b)
-                            then NotSoon
-                            else InXBytes (rs - x + rs * b)
+          -- Attempt to provide a lower bound on the next reseed
+          case (reseedInfo ag, reseedInfo bg) of
+             (NotSoon, _)    -> NotSoon
+             (_, NotSoon)    -> NotSoon
+             (Never, _)      -> Never
+             (_, Never)      -> Never
+             (_, InXBytes b) ->
+                 let s = genSeedLength `for` ag
+                     nr = if s <= 0 then 1 else (b `div` fromIntegral s) - 1
+                 in InXBytes $ rs - x + rs * nr
+             (_, InXCalls b) -> 
+                 if fromIntegral rs * fromIntegral b >
+                    fromIntegral (maxBound `asTypeOf` b)
+                     then NotSoon
+                     else InXBytes (rs - x + rs * b)
 
 -- |@g :: GenXor a b@ generates bytes with sub-generators a and b 
 -- and exclusive-or's the outputs to produce the resulting bytes.

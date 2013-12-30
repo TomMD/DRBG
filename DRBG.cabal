@@ -23,8 +23,8 @@ flag test
 Library
   Build-Depends: base >= 4.0 && < 5, cereal >= 0.2,
                  bytestring, prettyclass, tagged >= 0.2,
-                 crypto-api >= 0.12.1, cryptohash-cryptoapi >= 0.1,
-                 parallel, mtl >= 2.0, cipher-aes128 >= 0.3.2, entropy
+                 crypto-api >= 0.13, cryptohash-cryptoapi >= 0.1,
+                 parallel, mtl >= 2.0, cipher-aes128 >= 0.6, entropy
   ghc-options: -O2
   hs-source-dirs:
   exposed-modules: Crypto.Random.DRBG.Hash,
