@@ -16,7 +16,7 @@ For example, to seed a new generator with the system secure random
 the way) one would do:
 
 @
-    gen <- newGenIO :: IO HashDRBG
+    gen <- newGenIO :: IO CtrDRBG
     let Right (randomBytes, newGen) = genBytes 1024 gen
 @
 
@@ -29,12 +29,6 @@ with 'Either' this time):
     in ...
 @
 
-Selecting the underlying hash algorithm is supporting using *DRBGWith types:
-
-@
-    gen <- newGenIO :: IO (HmacDRBGWith SHA224)
-@
-
 There are several modifiers that allow you to compose generators together, producing
 generators with modified security, reseed, and performance properties.  'GenXor'
 will xor the random bytes of two generators.  'GenBuffered' will spark off work
@@ -42,9 +36,27 @@ to generate several megabytes of random data and keep that data buffered for
 quick use.  'GenAutoReseed' will use one generator to automatically reseed
 another after every 32 kilobytes of requested randoms. 
 
+Most likely you will want to automatically reseed using system randomness
+(via lazy IO).  Thus, you are left with a generator that is random, not
+pseudo random but without the dangerously unsafe IO found in some other
+RNGs:
+
+@
+    import Crypto.Random.DRBG hiding (genBytes)
+    import Crypto.Classes.Exceptions (genBytes)
+
+    -- An AES CTR generator that automatically reseeds.
+    getCtrGen :: IO (GenAutoReseed CtrDRBG SystemEntropy)
+    getCtrGen = newGenAutoReseedIO
+
+    f = do g1 <- getCtrGen
+           let (bytes, g2) = getBytes 1024 g1
+           g bytes g2
+@
+
 For a complex example, here is a generator that buffers several megabytes of
 random values which are an Xor of AES with a SHA384 hash that are each reseeded
-every 32kb with the output of a SHA512 HMAC generator.  (Not to claim this has
+every 32kb with the output of a SHA512 HMAC generator (not to claim this has
 any enhanced security properties, but just to show the composition can be
 nested).
 
@@ -52,7 +64,6 @@ nested).
     gen <- newGenIO :: IO (GenBuffered (GenAutoReseed (GenXor AesCntDRBG (HashDRBGWith SHA384)) HmacDRBG))
 @
 
- 
  -}
 
 module Crypto.Random.DRBG
@@ -110,7 +121,7 @@ type HmacDRBGWith = M.State
 -- of the underlying hash algorithm.
 type HashDRBGWith = H.State
 
--- |The Hash DRBG state (of kind * -> *) allowing selection
+-- |The AES CTR DRBG state (of kind * -> *) allowing selection
 -- of the underlying cipher algorithm.
 type CtrDRBGWith = CTR.State
 
@@ -118,9 +129,14 @@ type CtrDRBGWith = CTR.State
 type HmacDRBG = M.State SHA512
 
 -- |An Alias for a Hash DRBG generator using SHA512.
+--
+-- As of 1July2014 this remains the fastest cryptographic RNG on hackage
+-- that has been ran against known answer tests.
 type HashDRBG = H.State SHA512
 
--- |An Alias for a Counter DRBG generator using AES 128.
+-- |The recommended generator which uses AES-128 in counter mode.
+--
+-- This is an alias for a Counter DRBG generator using AES 128.
 type CtrDRBG = CTR.State AESKey128
 
 -- |@newGenAutoReseed bs i@ creates a new 'GenAutoReseed' with a custom interval
