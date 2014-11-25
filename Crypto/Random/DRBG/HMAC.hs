@@ -11,6 +11,7 @@ import qualified Data.ByteString.Lazy as L
 import Data.Serialize (encode, Serialize(..))
 import Data.Serialize.Put
 import Data.Serialize.Builder (toByteString)
+import Data.Tagged (proxy)
 import Data.Word (Word64)
 import Crypto.Classes
 import Crypto.HMAC
@@ -25,8 +26,12 @@ data State d = St
         -- Start admin info
         , value                 :: !Value
         , key                   :: !Key
-        , hashAlg               :: L.ByteString -> d
         }
+
+-- This is available with the right type in the tagged package starting from
+-- version 0.7, but ending with GHC version 7.8. Sigh.
+asProxyTypeOf :: d -> state d -> d
+asProxyTypeOf = const
 
 reseedInterval :: Word64
 reseedInterval = 2^48
@@ -37,16 +42,15 @@ update :: (Hash c d) => State d -> L.ByteString -> State d
 update st input = st { value = newV , key = newK }
   where
   hm k = hmac (MacKey k)
-  d    = hashAlg st undefined
   k    = key st
   v    = value st
-  k'   = encode $ (hm k (L.concat [fc v, L.singleton 0, input]) `asTypeOf` d)
-  v'   = encode $ (hm k' (fc v) `asTypeOf` d)
+  k'   = encode $ (hm k (L.concat [fc v, L.singleton 0, input]) `asProxyTypeOf` st)
+  v'   = encode $ (hm k' (fc v) `asProxyTypeOf` st)
   (newK, newV) =
     if L.length input == 0
       then (k',v')
-      else let k'' = encode $ hm k' (L.concat [fc v', L.singleton 1, input]) `asTypeOf` d
-           in (k'', encode $ hm k'' (fc v') `asTypeOf` d)
+      else let k'' = encode $ hm k' (L.concat [fc v', L.singleton 1, input]) `asProxyTypeOf` st
+           in (k'', encode $ hm k'' (fc v') `asProxyTypeOf` st)
 
 instantiate :: (Hash c d) => Entropy -> Nonce -> PersonalizationString -> State d
 instantiate ent nonce perStr = st
@@ -54,9 +58,8 @@ instantiate ent nonce perStr = st
   seedMaterial = L.fromChunks [ent, nonce, perStr]
   k = B.replicate olen 0
   v = B.replicate olen 1
-  st =  update (St 1 v k hash) seedMaterial
-  d  = hashAlg st undefined
-  olen = (outputLength .::. d) `div` 8
+  st = update (St 1 v k) seedMaterial
+  olen = (outputLength `proxy` st) `div` 8
 
 reseed :: (Hash c d) => State d -> Entropy -> AdditionalInput -> State d
 reseed st ent ai = (update st (L.fromChunks [ent, ai])) { counter = 1 }
@@ -67,7 +70,6 @@ generate st req additionalInput =
                 then Nothing
                 else Just (randBitsFinal, stFinal { counter = 1 + counter st})
   where
-  d = hashAlg st undefined
   st' = if B.length additionalInput == 0
                 then st
                 else update st (fc additionalInput)
@@ -81,12 +83,12 @@ generate st req additionalInput =
   getV :: Value -> Int -> (Value, [B.ByteString])
   getV !u 0 = (u, [])
   getV !u i = 
-        let !vNew = hmac' (MacKey kFinal) u `asTypeOf` d
+        let !vNew = hmac' (MacKey kFinal) u `asProxyTypeOf` st
             !encV = encode vNew
             (uFinal, rest) = getV encV (i - 1)
         in (uFinal, encV:rest)
   (vFinal, randBitsList) = getV (value st') iterations
   randBitsFinal = B.take reqBytes $ B.concat randBitsList
   kFinal = key st'
-  stFinal = update (st' { key = kFinal, value = vFinal}) (fc additionalInput)
-  outlen = outputLength .::. d `div` 8
+  stFinal = update (st' { key = kFinal, value = vFinal} `asTypeOf` st) (fc additionalInput)
+  outlen = (outputLength `proxy` st) `div` 8
