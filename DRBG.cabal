@@ -10,7 +10,7 @@ synopsis:       Deterministic random bit generator (aka RNG, PRNG) based
 category:       Cryptography
 stability:      stable
 build-type:     Simple
-cabal-version:  >= 1.6
+cabal-version:  >= 1.8
 tested-with:    GHC == 6.10.1
 Data-Files: Test/HMAC_DRBG.txt Test/Hash_DRBG.txt Test/CTR_DRBG.txt Test/Dual_EC_DRBG.txt CHANGELOG
 extra-source-files:
@@ -34,12 +34,11 @@ Library
                    Crypto.Random.DRBG.Types
   other-modules: Crypto.Random.DRBG.HashDF
 
-Executable drbg_test
-  if !flag(test)
-    buildable: False
+Test-Suite test-drbg
+  ghc-options: -Wall
+  Type:                 exitcode-stdio-1.0
   main-is: Test/KAT.hs
-  if flag(test)
-    build-depends:   base
+  build-depends:     base
                    , QuickCheck
                    , crypto-api
                    , bytestring
@@ -50,7 +49,12 @@ Executable drbg_test
                    , HUnit
                    , test-framework
                    , test-framework-hunit
-                   , cipher-aes
+                   , cipher-aes128
+                   , entropy
+                   , mtl
+                   , parallel
+                   , prettyclass
+                   , tagged
   other-modules: Paths_DRBG
 
 source-repository head
