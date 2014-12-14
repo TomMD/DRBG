@@ -66,7 +66,7 @@ categoryToTest_CTR (props, ts)
         ret    <- lookup "ReturnedBits" t'
         let f =
                 let hx        = hexStringToBS
-                    Just st0  = CTR.instantiate (hx eIn) (hx per) :: Maybe (CTR.State AESKey)
+                    Just st0  = CTR.instantiate (hx eIn) (hx per) :: Maybe (CTR.State AESKey128)
                     Just st1  = CTR.reseed st0 (hx eInPR1) (hx aIn1)
                     Just (_,st2) = CTR.generate st1 olen B.empty
                     Just st3 = CTR.reseed st2 (hx eInPR2) (hx aIn2)
@@ -88,7 +88,7 @@ categoryToTest_CTR (props, ts)
         ret   <- lookup "ReturnedBits" t
         let f =
                 let hx = hexStringToBS
-                    Just st0     = CTR.instantiate (hx eIn) (hx per) :: Maybe (CTR.State AESKey)
+                    Just st0     = CTR.instantiate (hx eIn) (hx per) :: Maybe (CTR.State AESKey128)
                     Just (_,st1) = CTR.generate st0 olen (hx aIn1)
                     Just st2     = CTR.reseed st1 (hx eInRS) (hx aInRS)
                     Just (r1, _) = CTR.generate st2 olen (hx aIn2)
