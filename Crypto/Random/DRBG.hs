@@ -72,7 +72,7 @@ module Crypto.Random.DRBG
           HmacDRBG, HashDRBG, CtrDRBG
         , HmacDRBGWith, HashDRBGWith, CtrDRBGWith
         -- * CryptoRandomGen Transformers
-        , GenXor
+        , GenXor(..)
         , GenBuffered
         , GenAutoReseed
         -- * AutoReseed generator construction with custom reseed interval
