@@ -21,7 +21,7 @@ flag test
   default: False
 
 Library
-  Build-Depends: base >= 4.0 && < 5, cereal >= 0.2,
+  Build-Depends: base >= 4.0 && < 5, cereal >= 0.5,
                  bytestring, prettyclass, tagged >= 0.7,
                  crypto-api >= 0.13, cryptohash-cryptoapi >= 0.1,
                  parallel, mtl >= 2.0, cipher-aes128 >= 0.6, entropy

@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# OPTIONS_GHC -Wall     #-}
 module Crypto.Random.DRBG.HMAC
         ( State, counter
         , reseedInterval
@@ -8,14 +9,10 @@ module Crypto.Random.DRBG.HMAC
 
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as L
-import Data.Serialize (encode, Serialize(..))
-import Data.Serialize.Put
-import Data.Serialize.Builder (toByteString)
 import Data.Tagged (proxy)
 import Data.Word (Word64)
 import Crypto.Classes
 import Crypto.HMAC
-import Crypto.Types
 import Crypto.Random.DRBG.Types
 
 type Key = B.ByteString
@@ -34,14 +31,15 @@ asProxyTypeOf :: d -> state d -> d
 asProxyTypeOf = const
 
 reseedInterval :: Word64
-reseedInterval = 2^48
+reseedInterval = 2^(48::Int)
 
+fc :: B.ByteString -> L.ByteString
 fc = L.fromChunks . \s -> [s]
 
 update :: (Hash c d) => State d -> L.ByteString -> State d
 update st input = st { value = newV , key = newK }
   where
-  hm k = hmac (MacKey k)
+  hm x = hmac (MacKey x)
   k    = key st
   v    = value st
   k'   = encode $ (hm k (L.concat [fc v, L.singleton 0, input]) `asProxyTypeOf` st)
